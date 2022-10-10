@@ -17,9 +17,12 @@
     ],
     "require": {
         "php": "^8.1",
-        "spiral/boot": "^3.0",
-        "spiral/console": "^3.0",
-        "open-telemetry/opentelemetry": "^0.0.15"
+        "spiral/events": "^3.1",
+        "spiral/boot": "^3.1",
+        "spiral/console": "^3.1",
+        "spiral/telemetry": "^3.1",
+        "open-telemetry/opentelemetry": "^0.0.15",
+        "php-http/guzzle6-adapter": "~2"
     },
     "require-dev": {
         "mockery/mockery": "^1.5",

@@ -13,7 +13,7 @@ class TestCase extends \Spiral\Testing\TestCase
     {
         return [
             \Spiral\Boot\Bootloader\ConfigurationBootloader::class,
-            \Spiral\OpenTelemetry\OpenTelemetryBootloader::class,
+            \Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader::class,
             // ...
         ];
     }
