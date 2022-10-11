@@ -44,10 +44,15 @@ final class Tracer implements TracerInterface
         array $attributes = [],
         bool $scoped = false,
         bool $debug = false,
-        ?TraceKind $traceKind = null
+        ?TraceKind $traceKind = null,
+        ?int $startTime = null
     ): mixed {
         $spanBuilder = $this->tracer->spanBuilder($name)
             ->setSpanKind($this->convertSpanKind($traceKind));
+
+        if ($startTime !== null) {
+            $spanBuilder->setStartTimestamp($startTime);
+        }
 
         if ($this->context !== null) {
             $ctx = $this->propagator->extract($this->context);

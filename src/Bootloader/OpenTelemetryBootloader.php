@@ -21,9 +21,11 @@ use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\EnvironmentInterface;
 use Spiral\Config\ConfiguratorInterface;
 use Spiral\OpenTelemetry\Config\OpenTelemetryConfig;
+use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
+use Spiral\Telemetry\ClockInterface;
 
 class OpenTelemetryBootloader extends Bootloader
 {
@@ -37,6 +39,7 @@ class OpenTelemetryBootloader extends Bootloader
 
     protected const SINGLETONS = [
         SpanProcessorInterface::class => [self::class, 'initSpanProcessor'],
+        ClockInterface::class => SystemClock::class
     ];
 
     public function __construct(
