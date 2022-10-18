@@ -37,6 +37,7 @@ protected const LOAD = [
 ## Configuration
 
 ```dotenv
+# Telemetry driver [log, null, otel]
 TELEMETRY_DRIVER=otel
 
 # OpenTelemetry
@@ -100,10 +101,6 @@ service:
 ```bash
 composer test
 ```
-
-## Contributing
-
-Please see [CONTRIBUTING](.github/CONTRIBUTING.md) for details.
 
 ## License
 

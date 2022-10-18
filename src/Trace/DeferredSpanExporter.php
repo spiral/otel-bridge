@@ -4,20 +4,16 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Trace;
 
-use OpenTelemetry\SDK\Common\Dsn\ParserInterface;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
-use Psr\Container\ContainerInterface;
-use Spiral\OpenTelemetry\Config\OpenTelemetryConfig;
 
 class DeferredSpanExporter implements SpanExporterInterface
 {
     private ?SpanExporterInterface $exporter = null;
 
     public function __construct(
-        private readonly ContainerInterface $container,
         private readonly ExporterFactory $exporterFactory,
     ) {
     }
@@ -45,8 +41,6 @@ class DeferredSpanExporter implements SpanExporterInterface
     private function getExporter(): SpanExporterInterface
     {
         if ($this->exporter === null) {
-            //$config = $this->container->get(OpenTelemetryConfig::class);
-
             $this->exporter = $this->exporterFactory->fromEnvironment();
         }
 

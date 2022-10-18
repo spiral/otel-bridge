@@ -7,7 +7,6 @@ namespace Spiral\OpenTelemetry\Bootloader;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
-use OpenTelemetry\Contrib\Otlp\SpanConverter;
 use OpenTelemetry\SDK\Common\Dsn\Parser;
 use OpenTelemetry\SDK\Common\Dsn\ParserInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
@@ -19,10 +18,7 @@ use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Psr\Container\ContainerInterface;
 use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\EnvironmentInterface;
-use Spiral\Config\ConfiguratorInterface;
-use Spiral\OpenTelemetry\Config\OpenTelemetryConfig;
 use Spiral\OpenTelemetry\SystemClock;
-use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
 use Spiral\Telemetry\ClockInterface;
@@ -42,14 +38,8 @@ class OpenTelemetryBootloader extends Bootloader
         ClockInterface::class => SystemClock::class
     ];
 
-    public function __construct(
-        private readonly ConfiguratorInterface $config
-    ) {
-    }
-
     public function init(EnvironmentInterface $env, TelemetryBootloader $telemetry): void
     {
-        $this->initConfig($env);
         $telemetry->registerTracer('otel', Tracer::class);
     }
 
@@ -58,7 +48,7 @@ class OpenTelemetryBootloader extends Bootloader
         TracerProviderInterface $tracerProvider
     ): TracerInterface {
         return $tracerProvider->getTracer(
-            $env->get('APP_NAME', 'Spiral Framework')
+            $env->get('OTEL_SERVICE_NAME', 'Spiral Framework')
         );
     }
 
@@ -69,11 +59,8 @@ class OpenTelemetryBootloader extends Bootloader
 
     public function initSpanProcessor(
         SpanExporterInterface $exporter,
-        SpanConverter $spanConverter,
-        ContainerInterface $container,
     ): SpanProcessorInterface {
         return (new SpanProcessorFactory())->fromEnvironment($exporter);
-        //return new StatelessSpanProcessor($container, $spanConverter);
     }
 
     public function initSpanExporter(
@@ -84,7 +71,7 @@ class OpenTelemetryBootloader extends Bootloader
         return new DeferredSpanExporter(
             $container,
             new ExporterFactory(
-                $env->get('APP_NAME', 'Spiral Framework'),
+                $env->get('OTEL_SERVICE_NAME', 'Spiral Framework'),
                 $parser
             )
         );
@@ -94,16 +81,5 @@ class OpenTelemetryBootloader extends Bootloader
         SpanProcessorInterface $spanProcessor
     ): TracerProviderInterface {
         return new TracerProvider($spanProcessor);
-    }
-
-    private function initConfig(EnvironmentInterface $env): void
-    {
-        $this->config->setDefaults(
-            OpenTelemetryConfig::CONFIG,
-            [
-                'name' => $env->get('APP_NAME'),
-                'dsn' => $env->get('OTEL_DSN'),
-            ]
-        );
     }
 }
