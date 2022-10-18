@@ -70,7 +70,6 @@ class OpenTelemetryBootloader extends Bootloader
         EnvironmentInterface $env
     ): SpanExporterInterface {
         return new DeferredSpanExporter(
-            $container,
             new ExporterFactory(
                 $env->get('OTEL_SERVICE_NAME', 'Spiral Framework'),
                 $parser
