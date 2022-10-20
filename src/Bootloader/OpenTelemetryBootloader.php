@@ -15,16 +15,15 @@ use OpenTelemetry\SDK\Trace\SpanProcessorFactory;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
-use Psr\Container\ContainerInterface;
 use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\EnvironmentInterface;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
-use Spiral\OpenTelemetry\Tracer;
+use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
 use Spiral\Telemetry\ClockInterface;
 
-class OpenTelemetryBootloader extends Bootloader
+final class OpenTelemetryBootloader extends Bootloader
 {
     protected const BINDINGS = [
         TracerInterface::class => [self::class, 'initTracer'],
@@ -41,7 +40,7 @@ class OpenTelemetryBootloader extends Bootloader
 
     public function init(EnvironmentInterface $env, TelemetryBootloader $telemetry): void
     {
-        $telemetry->registerTracer('otel', Tracer::class);
+        $telemetry->registerTracer('otel', TracerFactory::class);
     }
 
     public function initTracer(
@@ -65,7 +64,6 @@ class OpenTelemetryBootloader extends Bootloader
     }
 
     public function initSpanExporter(
-        ContainerInterface $container,
         ParserInterface $parser,
         EnvironmentInterface $env
     ): SpanExporterInterface {

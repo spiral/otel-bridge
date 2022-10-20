@@ -5,34 +5,26 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry;
 
 use OpenTelemetry\API\Trace\SpanKind;
+use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
-use Spiral\Core\InvokerInterface;
 use Spiral\Core\ScopeInterface;
+use Spiral\Telemetry\AbstractTracer;
 use Spiral\Telemetry\Span;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
-use Spiral\Telemetry\TracerInterface;
 
-final class Tracer implements TracerInterface
+final class Tracer extends AbstractTracer
 {
-    private ?array $context = null;
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
 
     public function __construct(
-        private readonly \OpenTelemetry\API\Trace\TracerInterface $tracer,
+        ScopeInterface $scope,
+        private readonly TracerInterface $tracer,
         private readonly TextMapPropagatorInterface $propagator,
-        private readonly InvokerInterface $invoker,
-        private readonly ScopeInterface $scope
+        private array $context = []
     ) {
-    }
-
-    public function withContext(?array $context): self
-    {
-        $self = clone $this;
-        $self->context = $context;
-
-        return $self;
+        parent::__construct($scope);
     }
 
     /**
@@ -43,26 +35,11 @@ final class Tracer implements TracerInterface
         callable $callback,
         array $attributes = [],
         bool $scoped = false,
-        bool $debug = false,
         ?TraceKind $traceKind = null,
         ?int $startTime = null
     ): mixed {
-        $spanBuilder = $this->tracer->spanBuilder($name)
-            ->setSpanKind($this->convertSpanKind($traceKind));
-
-        if ($startTime !== null) {
-            $spanBuilder->setStartTimestamp($startTime);
-        }
-
-        if ($this->context !== null) {
-            $ctx = $this->propagator->extract($this->context);
-            $spanBuilder->setParent($ctx);
-        }
-
-        $traceSpan = $spanBuilder->startSpan();
-        $this->lastSpan = $traceSpan;
-
-        $span = $this->createSpan($name, $attributes);
+        $traceSpan = $this->getTraceSpan($name, $traceKind, $startTime);
+        $internalSpan = $this->createInernalSpan($name, $attributes);
 
         $scope = null;
         if ($scoped) {
@@ -70,16 +47,14 @@ final class Tracer implements TracerInterface
         }
 
         try {
-            $result = $this->scope->runScope([
-                SpanInterface::class => $span,
-            ], fn() => $this->invoker->invoke($callback));
+            $result = $this->runScope($internalSpan, $callback);
 
-            if (($status = $span->getStatus()) !== null) {
+            if (($status = $internalSpan->getStatus()) !== null) {
                 $traceSpan->setStatus($status->code, $status->description);
             }
 
-            $traceSpan->updateName($span->getName());
-            $traceSpan->setAttributes($span->getAttributes());
+            $traceSpan->updateName($internalSpan->getName());
+            $traceSpan->setAttributes($internalSpan->getAttributes());
 
             return $result;
         } catch (\Throwable $e) {
@@ -91,7 +66,7 @@ final class Tracer implements TracerInterface
         }
     }
 
-    public function getContext(): ?array
+    public function getContext(): array
     {
         if ($this->lastSpan !== null) {
             $ctx = $this->lastSpan->storeInContext(Context::getCurrent());
@@ -115,8 +90,29 @@ final class Tracer implements TracerInterface
         };
     }
 
-    public function createSpan(string $name, array $attributes): SpanInterface
+    public function createInernalSpan(string $name, array $attributes): SpanInterface
     {
         return new Span($name, $attributes);
+    }
+
+    private function getTraceSpan(
+        string $name,
+        ?TraceKind $traceKind,
+        ?int $startTime
+    ): \OpenTelemetry\API\Trace\SpanInterface {
+        $spanBuilder = $this->tracer->spanBuilder($name)
+            ->setSpanKind($this->convertSpanKind($traceKind));
+
+        if ($startTime !== null) {
+            $spanBuilder->setStartTimestamp($startTime);
+        }
+
+        if ($this->context !== []) {
+            $spanBuilder->setParent(
+                $this->propagator->extract($this->context)
+            );
+        }
+
+        return $this->lastSpan = $spanBuilder->startSpan();
     }
 }

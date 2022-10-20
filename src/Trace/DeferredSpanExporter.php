@@ -9,7 +9,7 @@ use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 
-class DeferredSpanExporter implements SpanExporterInterface
+final class DeferredSpanExporter implements SpanExporterInterface
 {
     private ?SpanExporterInterface $exporter = null;
 

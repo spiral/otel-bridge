@@ -17,10 +17,10 @@
     ],
     "require": {
         "php": "^8.1",
-        "spiral/events": "^3.1",
-        "spiral/boot": "^3.1",
-        "spiral/console": "^3.1",
-        "spiral/telemetry": "^3.1",
+        "spiral/events": "^3.2",
+        "spiral/boot": "^3.2",
+        "spiral/console": "^3.2",
+        "spiral/telemetry": "^3.2",
         "open-telemetry/opentelemetry": "^0.0.15",
         "php-http/guzzle6-adapter": "~2"
     },
@@ -46,7 +46,10 @@
         "psalm": "vendor/bin/psalm --config=psalm.xml ./src"
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "spiral/composer-publish-plugin": false
+        }
     },
     "extra": {
         "spiral": {
