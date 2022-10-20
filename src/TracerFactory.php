@@ -20,7 +20,7 @@ final class TracerFactory implements TracerFactoryInterface
 
     public function make(array $context = []): TracerInterface
     {
-        $context = \array_intersect_assoc($context, $this->propagator->fields());
+        $context = \array_intersect_assoc($context, \array_flip($this->propagator->fields()));
 
         return new Tracer($this->scope, $this->tracer, $this->propagator, $context);
     }
