@@ -20,7 +20,11 @@ final class TracerFactory implements TracerFactoryInterface
 
     public function make(array $context = []): TracerInterface
     {
-        $context = \array_intersect_key($context, \array_flip($this->propagator->fields()));
+        $context = \array_intersect_ukey(
+            $context,
+            \array_flip($this->propagator->fields()),
+            fn(string $key1, string $key2): int => (\strtolower($key1) === \strtolower($key2)) ? 0 : -1
+        );
 
         return new Tracer($this->scope, $this->tracer, $this->propagator, $context);
     }
