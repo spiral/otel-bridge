@@ -5,7 +5,7 @@
 [![phpunit](https://github.com/spiral/otel-bridge/actions/workflows/phpunit.yml/badge.svg)](https://github.com/spiral/otel-bridge/actions)
 [![psalm](https://github.com/spiral/otel-bridge/actions/workflows/psalm.yml/badge.svg)](https://github.com/spiral/otel-bridge/actions)
 [![Codecov](https://codecov.io/gh/spiral/otel-bridge/branch/master/graph/badge.svg)](https://codecov.io/gh/spiral/otel-bridge/)
-[![Total Downloads](https://poser.pugx.org/spiral/otel-bridge/downloads)](https://packagist.org/spiral/otel-bridge/phpunit)
+[![Total Downloads](https://poser.pugx.org/spiral/otel-bridge/downloads)](https://packagist.org/packages/spiral/otel-bridge)
 
 ## Requirements
 
