@@ -15,7 +15,6 @@ use Spiral\OpenTelemetry\Tests\TestCase;
 use OpenTelemetry\SDK\Trace\Tracer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use OpenTelemetry\SDK\Common\Dsn\Parser;
-use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Config\TelemetryConfig;
 use Spiral\Telemetry\NullTracerFactory;
 use Spiral\Telemetry\LogTracerFactory;
@@ -45,16 +44,5 @@ class OpenTelemetryBootloaderTest extends TestCase
     public function testTextMapPropagatorInterfaceBinding(): void
     {
         $this->assertContainerBound(TextMapPropagatorInterface::class, TraceContextPropagator::class);
-    }
-
-    public function testAssertOtelTracerRegistered(): void
-    {
-        $this->assertConfigHasFragments(TelemetryConfig::CONFIG, [
-            'drivers' => [
-                'null' => NullTracerFactory::class,
-                'log' => LogTracerFactory::class,
-                'otel' => TracerFactory::class
-            ]
-        ]);
     }
 }

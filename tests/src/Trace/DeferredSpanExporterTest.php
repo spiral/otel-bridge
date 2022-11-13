@@ -53,7 +53,7 @@ class DeferredSpanExporterTest extends TestCase
 
         $exporter = new DeferredSpanExporter(m::mock(ExporterFactory::class));
 
-        $exporter::fromConnectionString('https://google.com', 'foo', 'bar');
+        $exporter::fromConnectionString('https://test.com', 'foo', 'bar');
     }
 
     /**
