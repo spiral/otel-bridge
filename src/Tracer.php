@@ -39,7 +39,7 @@ final class Tracer extends AbstractTracer
         ?int $startTime = null
     ): mixed {
         $traceSpan = $this->getTraceSpan($name, $traceKind, $startTime);
-        $internalSpan = $this->createInernalSpan($name, $attributes);
+        $internalSpan = $this->createInternalSpan($name, $attributes);
 
         $scope = null;
         if ($scoped) {
@@ -90,7 +90,7 @@ final class Tracer extends AbstractTracer
         };
     }
 
-    public function createInernalSpan(string $name, array $attributes): SpanInterface
+    public function createInternalSpan(string $name, array $attributes): SpanInterface
     {
         return new Span($name, $attributes);
     }
