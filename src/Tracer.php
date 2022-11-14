@@ -90,7 +90,7 @@ final class Tracer extends AbstractTracer
         };
     }
 
-    public function createInternalSpan(string $name, array $attributes): SpanInterface
+    private function createInternalSpan(string $name, array $attributes): SpanInterface
     {
         return new Span($name, $attributes);
     }
