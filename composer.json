@@ -21,7 +21,7 @@
         "spiral/boot": "^3.2",
         "spiral/console": "^3.2",
         "spiral/telemetry": "^3.3",
-        "open-telemetry/opentelemetry": "^0.0.15",
+        "open-telemetry/sdk": "^0.0.17",
         "php-http/guzzle6-adapter": "~2"
     },
     "require-dev": {

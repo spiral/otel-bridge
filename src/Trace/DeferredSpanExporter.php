@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry\Trace;
 
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
-use OpenTelemetry\SDK\Common\Future\CompletedFuture;
+use OpenTelemetry\SDK\Common\Future\ErrorFuture;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
@@ -27,13 +27,13 @@ final class DeferredSpanExporter implements SpanExporterInterface
     /**
      * @psalm-suppress InvalidReturnType,InvalidReturnStatement
      */
-    public function export(iterable $spans, ?CancellationInterface $cancellation = null): FutureInterface
+    public function export(iterable $batch, ?CancellationInterface $cancellation = null): FutureInterface
     {
         if ($this->getExporter() !== null) {
-            return $this->getExporter()->export($spans, $cancellation);
+            return $this->getExporter()->export($batch, $cancellation);
         }
 
-        return new CompletedFuture(SpanExporterInterface::STATUS_FAILED_NOT_RETRYABLE);
+        return new ErrorFuture(new \BadMethodCallException('Exporter is not initialized.'));
     }
 
     public function shutdown(?CancellationInterface $cancellation = null): bool
@@ -49,7 +49,7 @@ final class DeferredSpanExporter implements SpanExporterInterface
     private function getExporter(): ?SpanExporterInterface
     {
         if ($this->exporter === null) {
-            $this->exporter = $this->exporterFactory->fromEnvironment();
+            $this->exporter = $this->exporterFactory->create();
         }
 
         return $this->exporter;

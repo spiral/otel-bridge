@@ -18,7 +18,7 @@ class DeferredSpanExporterTest extends TestCase
     {
         $exporter = new DeferredSpanExporter($factory = m::mock(ExporterFactory::class));
 
-        $factory->shouldReceive('fromEnvironment')->withNoArgs()->andReturn(
+        $factory->shouldReceive('create')->withNoArgs()->andReturn(
             $span = m::mock(SpanExporterInterface::class)
         );
 
@@ -35,7 +35,7 @@ class DeferredSpanExporterTest extends TestCase
 
         $cancellation = m::mock(CancellationInterface::class);
 
-        $factory->shouldReceive('fromEnvironment')->withNoArgs()->andReturn(
+        $factory->shouldReceive('create')->withNoArgs()->andReturn(
             $span = m::mock(SpanExporterInterface::class)
         );
 
@@ -63,7 +63,7 @@ class DeferredSpanExporterTest extends TestCase
     {
         $exporter = new DeferredSpanExporter($factory = m::mock(ExporterFactory::class));
 
-        $factory->shouldReceive('fromEnvironment')->withNoArgs()->andReturn(
+        $factory->shouldReceive('create')->withNoArgs()->andReturn(
             $span = m::mock(SpanExporterInterface::class)
         );
 
