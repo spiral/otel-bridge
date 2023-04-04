@@ -60,7 +60,7 @@ final class OpenTelemetryBootloader extends Bootloader
     public function initSpanProcessor(
         SpanExporterInterface $exporter,
     ): SpanProcessorInterface {
-        return (new SpanProcessorFactory())->fromEnvironment($exporter);
+        return (new SpanProcessorFactory())->create($exporter);
     }
 
     public function initSpanExporter(
