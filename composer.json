@@ -48,7 +48,8 @@
     "config": {
         "sort-packages": true,
         "allow-plugins": {
-            "spiral/composer-publish-plugin": false
+            "spiral/composer-publish-plugin": false,
+            "php-http/discovery": false
         }
     },
     "extra": {
