@@ -22,7 +22,7 @@
         "spiral/console": "^3.2",
         "spiral/telemetry": "^3.3",
         "open-telemetry/sdk": "^0.0.17",
-        "php-http/guzzle6-adapter": "~2"
+        "php-http/guzzle7-adapter": "~1"
     },
     "require-dev": {
         "mockery/mockery": "^1.5",
@@ -48,7 +48,8 @@
     "config": {
         "sort-packages": true,
         "allow-plugins": {
-            "spiral/composer-publish-plugin": false
+            "spiral/composer-publish-plugin": false,
+            "php-http/discovery": false
         }
     },
     "extra": {
