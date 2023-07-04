@@ -19,10 +19,8 @@
         "php": "^8.1",
         "spiral/events": "^3.2",
         "spiral/boot": "^3.2",
-        "spiral/console": "^3.2",
         "spiral/telemetry": "^3.3",
-        "open-telemetry/sdk": "^0.0.17",
-        "php-http/guzzle7-adapter": "~1"
+        "open-telemetry/sdk": "^0.0.17"
     },
     "require-dev": {
         "mockery/mockery": "^1.5",
