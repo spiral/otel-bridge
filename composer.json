@@ -24,9 +24,9 @@
     },
     "require-dev": {
         "mockery/mockery": "^1.5",
-        "phpunit/phpunit": "^9.5",
-        "spiral/testing": "^2.0",
-        "vimeo/psalm": "^4.9"
+        "phpunit/phpunit": "^10.2",
+        "spiral/testing": "^2.3",
+        "vimeo/psalm": "^5.13"
     },
     "autoload": {
         "psr-4": {

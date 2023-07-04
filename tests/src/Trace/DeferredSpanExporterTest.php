@@ -8,6 +8,7 @@ use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spiral\OpenTelemetry\Tests\TestCase;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Mockery as m;
@@ -56,9 +57,7 @@ class DeferredSpanExporterTest extends TestCase
         $exporter::fromConnectionString('https://test.com', 'foo', 'bar');
     }
 
-    /**
-     * @dataProvider provideData
-     */
+    #[DataProvider('provideData')]
     public function testOtherMethods(string $method, $cancellation): void
     {
         $exporter = new DeferredSpanExporter($factory = m::mock(ExporterFactory::class));
@@ -72,7 +71,7 @@ class DeferredSpanExporterTest extends TestCase
         $this->assertSame(true, $cancellation ? $exporter->$method($cancellation) : $exporter->$method());
     }
 
-    public function provideData(): array
+    public static function provideData(): array
     {
         return [
             [
