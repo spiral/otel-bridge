@@ -19,16 +19,14 @@
         "php": "^8.1",
         "spiral/events": "^3.2",
         "spiral/boot": "^3.2",
-        "spiral/console": "^3.2",
         "spiral/telemetry": "^3.3",
-        "open-telemetry/sdk": "^0.0.17",
-        "php-http/guzzle7-adapter": "~1"
+        "open-telemetry/sdk": "^0.0.17"
     },
     "require-dev": {
         "mockery/mockery": "^1.5",
-        "phpunit/phpunit": "^9.5",
-        "spiral/testing": "^2.0",
-        "vimeo/psalm": "^4.9"
+        "phpunit/phpunit": "^10.2",
+        "spiral/testing": "^2.3",
+        "vimeo/psalm": "^5.13"
     },
     "autoload": {
         "psr-4": {
