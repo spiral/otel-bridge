@@ -7,8 +7,6 @@ namespace Spiral\OpenTelemetry\Bootloader;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
-use OpenTelemetry\SDK\Common\Dsn\Parser;
-use OpenTelemetry\SDK\Common\Dsn\ParserInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessorFactory;
@@ -29,7 +27,6 @@ final class OpenTelemetryBootloader extends Bootloader
         TracerInterface::class => [self::class, 'initTracer'],
         TracerProviderInterface::class => [self::class, 'initTraceProvider'],
         SpanExporterInterface::class => [self::class, 'initSpanExporter'],
-        ParserInterface::class => Parser::class,
         TextMapPropagatorInterface::class => [self::class, 'initTextMapPropagator'],
     ];
 
