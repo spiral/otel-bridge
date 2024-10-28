@@ -29,10 +29,9 @@ final class OpenTelemetryBootloader extends Bootloader
         SpanExporterInterface::class => [self::class, 'initSpanExporter'],
         TextMapPropagatorInterface::class => [self::class, 'initTextMapPropagator'],
     ];
-
     protected const SINGLETONS = [
         SpanProcessorInterface::class => [self::class, 'initSpanProcessor'],
-        ClockInterface::class => SystemClock::class
+        ClockInterface::class => SystemClock::class,
     ];
 
     public function init(EnvironmentInterface $env, TelemetryBootloader $telemetry): void
@@ -42,10 +41,10 @@ final class OpenTelemetryBootloader extends Bootloader
 
     public function initTracer(
         EnvironmentInterface $env,
-        TracerProviderInterface $tracerProvider
+        TracerProviderInterface $tracerProvider,
     ): TracerInterface {
         return $tracerProvider->getTracer(
-            $env->get('OTEL_SERVICE_NAME', 'Spiral Framework')
+            $env->get('OTEL_SERVICE_NAME', 'Spiral Framework'),
         );
     }
 
@@ -60,14 +59,15 @@ final class OpenTelemetryBootloader extends Bootloader
         return (new SpanProcessorFactory())->create($exporter);
     }
 
-    public function initSpanExporter(): SpanExporterInterface {
+    public function initSpanExporter(): SpanExporterInterface
+    {
         return new DeferredSpanExporter(
-            new ExporterFactory()
+            new ExporterFactory(),
         );
     }
 
     public function initTraceProvider(
-        SpanProcessorInterface $spanProcessor
+        SpanProcessorInterface $spanProcessor,
     ): TracerProviderInterface {
         return new TracerProvider($spanProcessor);
     }

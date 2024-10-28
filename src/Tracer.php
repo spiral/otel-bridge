@@ -22,7 +22,7 @@ final class Tracer extends AbstractTracer
         ScopeInterface $scope,
         private readonly TracerInterface $tracer,
         private readonly TextMapPropagatorInterface $propagator,
-        private array $context = []
+        private array $context = [],
     ) {
         parent::__construct($scope);
     }
@@ -36,7 +36,7 @@ final class Tracer extends AbstractTracer
         array $attributes = [],
         bool $scoped = false,
         ?TraceKind $traceKind = null,
-        ?int $startTime = null
+        ?int $startTime = null,
     ): mixed {
         $traceSpan = $this->getTraceSpan($name, $traceKind, $startTime);
         $internalSpan = $this->createInternalSpan($name, $attributes);
@@ -86,7 +86,7 @@ final class Tracer extends AbstractTracer
             TraceKind::SERVER => SpanKind::KIND_SERVER,
             TraceKind::PRODUCER => SpanKind::KIND_PRODUCER,
             TraceKind::CONSUMER => SpanKind::KIND_CONSUMER,
-            default => SpanKind::KIND_INTERNAL
+            default => SpanKind::KIND_INTERNAL,
         };
     }
 
@@ -98,7 +98,7 @@ final class Tracer extends AbstractTracer
     private function getTraceSpan(
         string $name,
         ?TraceKind $traceKind,
-        ?int $startTime
+        ?int $startTime,
     ): \OpenTelemetry\API\Trace\SpanInterface {
         $spanBuilder = $this->tracer->spanBuilder($name)
             ->setSpanKind($this->convertSpanKind($traceKind));
@@ -109,7 +109,7 @@ final class Tracer extends AbstractTracer
 
         if ($this->context !== []) {
             $spanBuilder->setParent(
-                $this->propagator->extract($this->context)
+                $this->propagator->extract($this->context),
             );
         }
 
