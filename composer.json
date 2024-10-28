@@ -17,14 +17,17 @@
     ],
     "require": {
         "php": "^8.1",
-        "spiral/events": "^3.2",
-        "spiral/boot": "^3.2",
-        "spiral/telemetry": "^3.3",
+        "spiral/events": "^3.14.6",
+        "spiral/boot": "^3.14.6",
+        "spiral/core": "^3.14.6",
+        "spiral/telemetry": "^3.14.6",
         "open-telemetry/sdk": "^1.0"
     },
     "require-dev": {
         "mockery/mockery": "^1.5",
         "phpunit/phpunit": "^10.2",
+        "spiral/code-style": "^2.2",
+        "spiral/dumper": "^3.3",
         "spiral/testing": "^2.3",
         "vimeo/psalm": "^5.13"
     },
@@ -46,8 +49,9 @@
     "config": {
         "sort-packages": true,
         "allow-plugins": {
+            "php-http/discovery": false,
             "spiral/composer-publish-plugin": false,
-            "php-http/discovery": false
+            "tbachert/spi": false
         }
     },
     "extra": {
