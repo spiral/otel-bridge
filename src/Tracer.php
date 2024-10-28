@@ -8,6 +8,7 @@ use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
+use Spiral\Core\Attribute\Proxy;
 use Spiral\Core\ScopeInterface;
 use Spiral\Telemetry\AbstractTracer;
 use Spiral\Telemetry\Span;
@@ -19,7 +20,7 @@ final class Tracer extends AbstractTracer
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
 
     public function __construct(
-        ScopeInterface $scope,
+        #[Proxy] ScopeInterface $scope,
         private readonly TracerInterface $tracer,
         private readonly TextMapPropagatorInterface $propagator,
         private array $context = [],
@@ -100,7 +101,8 @@ final class Tracer extends AbstractTracer
         ?TraceKind $traceKind,
         ?int $startTime,
     ): \OpenTelemetry\API\Trace\SpanInterface {
-        $spanBuilder = $this->tracer->spanBuilder($name)
+        $spanBuilder = $this->tracer
+            ->spanBuilder($name)
             ->setSpanKind($this->convertSpanKind($traceKind));
 
         if ($startTime !== null) {
