@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<files psalm-version="5.26.1@d747f6500b38ac4f7dfc5edbcae6e4b637d7add0">
+  <file src="src/Bootloader/OpenTelemetryBootloader.php">
+    <MixedArgument>
+      <code><![CDATA[$env->get('OTEL_SERVICE_NAME', 'Spiral Framework')]]></code>
+    </MixedArgument>
+  </file>
+  <file src="src/SystemClock.php">
+    <DeprecatedClass>
+      <code><![CDATA[ClockFactory::getDefault()]]></code>
+    </DeprecatedClass>
+  </file>
+  <file src="src/Trace/DeferredSpanExporter.php">
+    <MixedReturnTypeCoercion>
+      <code><![CDATA[FutureInterface]]></code>
+      <code><![CDATA[new ErrorFuture(new \BadMethodCallException('Exporter is not initialized.'))]]></code>
+    </MixedReturnTypeCoercion>
+    <PossiblyNullReference>
+      <code><![CDATA[export]]></code>
+    </PossiblyNullReference>
+  </file>
+  <file src="src/Tracer.php">
+    <ArgumentTypeCoercion>
+      <code><![CDATA[$internalSpan]]></code>
+      <code><![CDATA[$name]]></code>
+      <code><![CDATA[$name]]></code>
+      <code><![CDATA[$status->code]]></code>
+      <code><![CDATA[$this->convertSpanKind($traceKind)]]></code>
+    </ArgumentTypeCoercion>
+    <MixedAssignment>
+      <code><![CDATA[$result]]></code>
+    </MixedAssignment>
+    <MixedInferredReturnType>
+      <code><![CDATA[array]]></code>
+    </MixedInferredReturnType>
+    <MixedReturnStatement>
+      <code><![CDATA[$carrier]]></code>
+    </MixedReturnStatement>
+    <PossiblyInvalidArgument>
+      <code><![CDATA[$internalSpan->getAttributes()]]></code>
+    </PossiblyInvalidArgument>
+  </file>
+</files>
