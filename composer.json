@@ -4,19 +4,31 @@
     "keywords": [
         "Spiral",
         "spiral framework",
-        "opentelemetry"
+        "opentelemetry",
+        "telemetry",
+        "OTEL"
     ],
     "homepage": "https://github.com/spiral/otel-bridge",
     "license": "MIT",
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/spiral"
+        }
+    ],
     "authors": [
         {
             "name": "butschster",
             "email": "butschster@gmail.com",
             "role": "Developer"
+        },
+        {
+            "name": "Aleksei Gagarin",
+            "email": "alexey.gagarin@spiralscout.com"
         }
     ],
     "require": {
-        "php": "^8.1",
+        "php": ">=8.1",
         "spiral/events": "^3.14.6",
         "spiral/boot": "^3.14.6",
         "spiral/core": "^3.14.6",
