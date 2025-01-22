@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry;
 
 use OpenTelemetry\API\Trace\SpanKind;
+use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
@@ -51,11 +52,11 @@ final class Tracer extends AbstractTracer
             $result = $this->runScope($internalSpan, $callback);
 
             if (($status = $internalSpan->getStatus()) !== null) {
-                $traceSpan->setStatus($status->code, $status->description);
+                $traceSpan->setStatus(self::normalizeStatusCode($status->code), $status->description);
             }
 
             $traceSpan->updateName($internalSpan->getName());
-            $traceSpan->setAttributes($internalSpan->getAttributes());
+            $traceSpan->setAttributes(self::normalizeAttributes($internalSpan->getAttributes()));
 
             return $result;
         } catch (\Throwable $e) {
@@ -88,6 +89,55 @@ final class Tracer extends AbstractTracer
             TraceKind::PRODUCER => SpanKind::KIND_PRODUCER,
             TraceKind::CONSUMER => SpanKind::KIND_CONSUMER,
             default => SpanKind::KIND_INTERNAL,
+        };
+    }
+
+    /**
+     * @return StatusCode::STATUS_*
+     */
+    private static function normalizeStatusCode(int|string $code): string
+    {
+        if (\is_string($code)) {
+            return match (\strtolower($code)) {
+                'error' => StatusCode::STATUS_ERROR,
+                'unset' => StatusCode::STATUS_UNSET,
+                default => StatusCode::STATUS_OK,
+            };
+        }
+
+        return StatusCode::STATUS_OK;
+    }
+
+    /**
+     * Convert mixed values to scalar or null.
+     *
+     * @param iterable<non-empty-string, mixed> $attributes
+     *
+     * @return iterable<non-empty-string, null|scalar|array<array-key, null|scalar>>
+     */
+    private static function normalizeAttributes(iterable $attributes): iterable
+    {
+        $normalized = [];
+        foreach ($attributes as $key => $value) {
+            $normalized[$key] = \is_array($value)
+                ? \array_map(self::normalizeAttributeValue(...), $value)
+                : self::normalizeAttributeValue($value);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Convert a single value to scalar or null.
+     */
+    private static function normalizeAttributeValue(mixed $value): null|bool|int|float|string
+    {
+        return match (true) {
+            $value === null || \is_scalar($value) => $value,
+            $value instanceof \Stringable => $value->__toString(),
+            \is_array($value) || $value instanceof \JsonSerializable => \json_encode($value),
+            \is_object($value) => $value::class,
+            default => \get_debug_type($value),
         };
     }
 
