@@ -21,14 +21,13 @@
   </file>
   <file src="src/Tracer.php">
     <ArgumentTypeCoercion>
-      <code><![CDATA[$internalSpan]]></code>
       <code><![CDATA[$name]]></code>
       <code><![CDATA[$name]]></code>
-      <code><![CDATA[$status->code]]></code>
       <code><![CDATA[$this->convertSpanKind($traceKind)]]></code>
     </ArgumentTypeCoercion>
     <MixedAssignment>
       <code><![CDATA[$result]]></code>
+      <code><![CDATA[$value]]></code>
     </MixedAssignment>
     <MixedInferredReturnType>
       <code><![CDATA[array]]></code>
@@ -36,8 +35,5 @@
     <MixedReturnStatement>
       <code><![CDATA[$carrier]]></code>
     </MixedReturnStatement>
-    <PossiblyInvalidArgument>
-      <code><![CDATA[$internalSpan->getAttributes()]]></code>
-    </PossiblyInvalidArgument>
   </file>
 </files>
