@@ -119,9 +119,11 @@ final class Tracer extends AbstractTracer
     {
         $normalized = [];
         foreach ($attributes as $key => $value) {
-            $normalized[$key] = \is_array($value)
-                ? \array_map(self::normalizeAttributeValue(...), $value)
-                : self::normalizeAttributeValue($value);
+            $normalized[$key] = match (true) {
+                !\is_array($value) => self::normalizeAttributeValue($value),
+                \array_keys($value) === [0] => self::normalizeAttributeValue($value[0]),
+                default => \array_map(self::normalizeAttributeValue(...), $value),
+            };
         }
 
         return $normalized;
