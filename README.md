@@ -1,5 +1,5 @@
 <p align="center">
-    <a href="https://spiral.dev"><img alt="Spiral Framework" src="https://github.com/spiral/.github/raw/main/logo.svg" style="width: 3in; display: block"></a>
+    <a href="https://spiral.dev"><img alt="Spiral Framework" src="https://github.com/spiral/.github/raw/main/logo.svg" style="display: block"></a>
 </p>
 
 <p align="center">OpenTelemetry tracing for Spiral Framework</p>
