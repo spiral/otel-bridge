@@ -1,7 +1,7 @@
-.idea/
-.env
+/.*/
+!/.github/
 /runtime/
 /vendor/
-composer.lock
-/tests/runtime/*
-*.db
+/.env
+*.log
+/composer.lock
