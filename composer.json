@@ -40,12 +40,14 @@
         "open-telemetry/sem-conv": "<1.22"
     },
     "require-dev": {
+        "llm/skills": "^1.14",
         "mockery/mockery": "^1.5",
         "phpunit/phpunit": "^10.2",
-        "spiral/code-style": "^2.2",
+        "roxblnfk/unpoly": "^1.8",
+        "spiral/code-style": "^2.4",
         "spiral/dumper": "^3.3",
         "spiral/testing": "^2.3",
-        "vimeo/psalm": "^5.13"
+        "vimeo/psalm": "^6 || ^7"
     },
     "autoload": {
         "psr-4": {
@@ -71,7 +73,8 @@
         "allow-plugins": {
             "php-http/discovery": false,
             "spiral/composer-publish-plugin": false,
-            "tbachert/spi": false
+            "tbachert/spi": false,
+            "llm/skills": true
         }
     },
     "extra": {
