@@ -47,4 +47,23 @@ final class TracerFactoryTest
         $propagated = ['foo3' => 'bar3', 'foo4' => 'bar4', 'foo5' => 'bar5'];
         Assert::equals($tracer->getContext(), $propagated);
     }
+
+    public function testMakeMatchesFieldsCaseInsensitively(): void
+    {
+        $factory = new TracerFactory(
+            Double::for(ScopeInterface::class)->strict(),
+            Double::for(TracerInterface::class)->strict(),
+            $propagator = Double::for(TextMapPropagatorInterface::class)->strict()
+        );
+        $propagator->allows('fields')->with(Argument::none())->returns(['traceparent', 'TraceState', 'Baggage']);
+        $tracer = $factory->make([
+            'X-Request-Id' => 'id',
+            'TRACEPARENT' => 'parent',
+            'Accept' => 'json',
+            'tracestate' => 'state',
+            'baggage' => 'bag',
+            'Zipkin' => 'zip',
+        ]);
+        Assert::same($tracer->getContext(), ['TRACEPARENT' => 'parent', 'tracestate' => 'state', 'baggage' => 'bag']);
+    }
 }

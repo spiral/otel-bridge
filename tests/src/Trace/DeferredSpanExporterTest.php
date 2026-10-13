@@ -23,8 +23,8 @@ final class DeferredSpanExporterTest
     {
         $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
         $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
-        $span->allows('export')->with(['foo', 'bar'], null)->returns(Double::for(FutureInterface::class)->strict());
-        Assert::instanceOf($exporter->export(['foo', 'bar']), FutureInterface::class);
+        $span->allows('export')->with(['foo', 'bar'], null)->returns($future = Double::for(FutureInterface::class)->strict());
+        Assert::same($exporter->export(['foo', 'bar']), $future);
     }
 
     public function testExportWithCancellation(): void
@@ -53,6 +53,26 @@ final class DeferredSpanExporterTest
         $span->allows($method)->with($cancellation)->returns(true);
 
         Assert::same($cancellation ? $exporter->$method($cancellation) : $exporter->$method(), true);
+    }
+
+    public function testExportWithoutConfiguredExporter(): void
+    {
+        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
+        $factory->allows('create')->with(Argument::none())->returns(null);
+
+        $future = $exporter->export(['foo']);
+
+        Expect::exception(\BadMethodCallException::class)->withMessageContaining('Exporter is not initialized.');
+        $future->await();
+    }
+
+    public function testShutdownAndFlushWithoutConfiguredExporter(): void
+    {
+        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
+        $factory->allows('create')->with(Argument::none())->returns(null);
+
+        Assert::false($exporter->forceFlush());
+        Assert::false($exporter->shutdown());
     }
 
     public static function provideData(): array
