@@ -30,8 +30,13 @@ final class Tracer extends AbstractTracer
     }
 
     /**
+     * @param non-empty-string $name
+     *
      * @throws \Throwable
+     *
+     * @psalm-suppress MixedAssignment The callback result is returned as is
      */
+    #[\Override]
     public function trace(
         string $name,
         callable $callback,
@@ -68,6 +73,7 @@ final class Tracer extends AbstractTracer
         }
     }
 
+    #[\Override]
     public function getContext(): array
     {
         if ($this->lastSpan !== null) {
@@ -75,12 +81,16 @@ final class Tracer extends AbstractTracer
             $carrier = [];
             $this->propagator->inject($carrier, null, $ctx);
 
+            /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
             return $carrier;
         }
 
         return $this->context;
     }
 
+    /**
+     * @return SpanKind::KIND_*
+     */
     public function convertSpanKind(?TraceKind $traceKind): int
     {
         return match ($traceKind) {
@@ -118,6 +128,7 @@ final class Tracer extends AbstractTracer
     private static function normalizeAttributes(iterable $attributes): iterable
     {
         $normalized = [];
+        /** @psalm-suppress MixedAssignment Attribute values are mixed by contract */
         foreach ($attributes as $key => $value) {
             $normalized[$key] = match (true) {
                 !\is_array($value) => self::normalizeAttributeValue($value),
@@ -143,11 +154,17 @@ final class Tracer extends AbstractTracer
         };
     }
 
+    /**
+     * @param non-empty-string $name
+     */
     private function createInternalSpan(string $name, array $attributes): SpanInterface
     {
         return new Span($name, $attributes);
     }
 
+    /**
+     * @param non-empty-string $name
+     */
     private function getTraceSpan(
         string $name,
         ?TraceKind $traceKind,

@@ -3,22 +3,29 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns="https://getpsalm.org/schema/config"
     xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
-    errorBaseline="psalm-baseline.xml"
     errorLevel="1"
+    resolveFromConfigFile="true"
     findUnusedCode="false"
-    findUnusedBaselineEntry="true"
 >
     <projectFiles>
-        <directory name="src"/>
+        <directory name="src" />
         <ignoreFiles>
-            <directory name="vendor"/>
+            <directory name="vendor" />
         </ignoreFiles>
     </projectFiles>
     <issueHandlers>
-        <UndefinedAttributeClass>
-            <errorLevel type="suppress">
-                <referencedClass name="JetBrains\PhpStorm\ExpectedValues"/>
-            </errorLevel>
-        </UndefinedAttributeClass>
+        <!-- Making public classes final would break BC for users who extend them -->
+        <ClassMustBeFinal errorLevel="suppress" />
     </issueHandlers>
+    <forbiddenFunctions>
+        <function name="dd"/>
+        <function name="exit"/>
+        <function name="die"/>
+        <function name="var_dump"/>
+        <function name="echo"/>
+        <function name="print"/>
+        <function name="trap"/>
+        <function name="td"/>
+        <function name="tr"/>
+    </forbiddenFunctions>
 </psalm>

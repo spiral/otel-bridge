@@ -44,7 +44,7 @@ final class OpenTelemetryBootloader extends Bootloader
         TracerProviderInterface $tracerProvider,
     ): TracerInterface {
         return $tracerProvider->getTracer(
-            $env->get('OTEL_SERVICE_NAME', 'Spiral Framework'),
+            (string) $env->get('OTEL_SERVICE_NAME', 'Spiral Framework'),
         );
     }
 

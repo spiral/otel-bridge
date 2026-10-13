@@ -18,6 +18,7 @@ final class TracerFactory implements TracerFactoryInterface
         private readonly TextMapPropagatorInterface $propagator,
     ) {}
 
+    #[\Override]
     public function make(array $context = []): TracerInterface
     {
         $context = \array_intersect_ukey(
