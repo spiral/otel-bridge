@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Bootloader;
 
+use Testo\Assert;
 use Testo\Test;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\TracerInterface;
@@ -14,6 +15,8 @@ use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Spiral\OpenTelemetry\Tests\TestCase;
 use OpenTelemetry\SDK\Trace\Tracer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
+use Spiral\OpenTelemetry\TracerFactory;
+use Spiral\Telemetry\Config\TelemetryConfig;
 
 final class OpenTelemetryBootloaderTest extends TestCase
 {
@@ -39,5 +42,11 @@ final class OpenTelemetryBootloaderTest extends TestCase
     public function testTextMapPropagatorInterfaceBinding(): void
     {
         $this->assertContainerBound(TextMapPropagatorInterface::class, TraceContextPropagator::class);
+    }
+
+    #[Test]
+    public function testOtelTracerDriverRegistered(): void
+    {
+        Assert::same($this->getConfig(TelemetryConfig::CONFIG)['drivers']['otel'] ?? null, TracerFactory::class);
     }
 }
