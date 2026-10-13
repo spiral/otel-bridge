@@ -24,22 +24,26 @@ final class DeferredSpanExporter implements SpanExporterInterface
     }
 
     /**
-     * @psalm-suppress InvalidReturnType,InvalidReturnStatement
+     * @psalm-suppress MixedReturnTypeCoercion ErrorFuture declares no template, so it can't be FutureInterface<bool>
      */
+    #[\Override]
     public function export(iterable $batch, ?CancellationInterface $cancellation = null): FutureInterface
     {
-        if ($this->getExporter() !== null) {
-            return $this->getExporter()->export($batch, $cancellation);
+        $exporter = $this->getExporter();
+        if ($exporter !== null) {
+            return $exporter->export($batch, $cancellation);
         }
 
         return new ErrorFuture(new \BadMethodCallException('Exporter is not initialized.'));
     }
 
+    #[\Override]
     public function shutdown(?CancellationInterface $cancellation = null): bool
     {
         return (bool) $this->getExporter()?->shutdown($cancellation);
     }
 
+    #[\Override]
     public function forceFlush(?CancellationInterface $cancellation = null): bool
     {
         return (bool) $this->getExporter()?->forceFlush($cancellation);
