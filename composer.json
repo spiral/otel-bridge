@@ -29,11 +29,12 @@
     ],
     "require": {
         "php": ">=8.2",
-        "spiral/events": "^3.14.6",
+        "open-telemetry/api": "^1.1",
+        "open-telemetry/sdk": "^1.3",
         "spiral/boot": "^3.14.6",
         "spiral/core": "^3.14.6",
-        "spiral/telemetry": "^3.14.6",
-        "open-telemetry/sdk": "^1.0"
+        "spiral/events": "^3.14.6",
+        "spiral/telemetry": "^3.14.6"
     },
     "conflict": {
         "open-telemetry/sem-conv": "<1.22"
