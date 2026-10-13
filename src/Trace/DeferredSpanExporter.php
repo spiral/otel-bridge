@@ -18,11 +18,6 @@ final class DeferredSpanExporter implements SpanExporterInterface
         private readonly ExporterFactory $exporterFactory,
     ) {}
 
-    public static function fromConnectionString(string $endpointUrl, string $name, string $args): void
-    {
-        throw new \Exception('Method is not supported.');
-    }
-
     /**
      * @psalm-suppress MixedReturnTypeCoercion ErrorFuture declares no template, so it can't be FutureInterface<bool>
      */

@@ -36,13 +36,6 @@ final class DeferredSpanExporterTest
         Assert::instanceOf($exporter->export(['foo', 'bar'], $cancellation), FutureInterface::class);
     }
 
-    public function testFromConnectionString(): void
-    {
-        Expect::exception(\Exception::class)->withMessageContaining('Method is not supported.');
-        $exporter = new DeferredSpanExporter(Double::for(ExporterFactory::class)->strict());
-        $exporter::fromConnectionString('https://test.com', 'foo', 'bar');
-    }
-
     #[DataProvider('provideData')]
     public function testOtherMethods(string $method, $cancellation): void
     {

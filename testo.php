@@ -9,14 +9,14 @@ use Testo\Bridge\Double\DoublePlugin;
 
 return new ApplicationConfig(
     src: ['src'],
-    plugins: [
-        new SpiralTestingPlugin(),
-        new DoublePlugin(),
-    ],
     suites: [
         new SuiteConfig(
             name: 'OpenTelemetry Bridge',
             location: ['tests/src'],
         ),
+    ],
+    plugins: [
+        new SpiralTestingPlugin(),
+        new DoublePlugin(),
     ],
 );
