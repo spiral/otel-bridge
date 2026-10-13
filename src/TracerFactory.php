@@ -23,7 +23,7 @@ final class TracerFactory implements TracerFactoryInterface
         $context = \array_intersect_ukey(
             $context,
             \array_flip($this->propagator->fields()),
-            static function(string $key1, string $key2): int {
+            static function (string $key1, string $key2): int {
                 if (\strtolower($key1) === \strtolower($key2)) {
                     return 0;
                 }
