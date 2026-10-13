@@ -4,71 +4,55 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Trace;
 
+use Testo\Data\DataProvider;
+use Testo\Test;
+use JMac\Testing\Double;
+use JMac\Testing\Matching\Argument;
+use Testo\Assert;
+use Testo\Expect;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
-use PHPUnit\Framework\Attributes\DataProvider;
-use Spiral\OpenTelemetry\Tests\TestCase;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
-use Mockery as m;
 
-class DeferredSpanExporterTest extends TestCase
+#[Test]
+final class DeferredSpanExporterTest
 {
     public function testExport(): void
     {
-        $exporter = new DeferredSpanExporter($factory = m::mock(ExporterFactory::class));
-
-        $factory->shouldReceive('create')->withNoArgs()->andReturn(
-            $span = m::mock(SpanExporterInterface::class)
-        );
-
-        $span->shouldReceive('export')->with(['foo', 'bar'], null)->andReturn(
-            m::mock(FutureInterface::class)
-        );
-
-        $this->assertInstanceOf(FutureInterface::class, $exporter->export(['foo', 'bar']));
+        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
+        $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
+        $span->allows('export')->with(['foo', 'bar'], null)->returns(Double::for(FutureInterface::class)->strict());
+        Assert::instanceOf($exporter->export(['foo', 'bar']), FutureInterface::class);
     }
 
     public function testExportWithCancellation(): void
     {
-        $exporter = new DeferredSpanExporter($factory = m::mock(ExporterFactory::class));
-
-        $cancellation = m::mock(CancellationInterface::class);
-
-        $factory->shouldReceive('create')->withNoArgs()->andReturn(
-            $span = m::mock(SpanExporterInterface::class)
-        );
-
-        $span->shouldReceive('export')->with(['foo', 'bar'], $cancellation)->andReturn(
-            m::mock(FutureInterface::class)
-        );
-
-        $this->assertInstanceOf(FutureInterface::class, $exporter->export(['foo', 'bar'], $cancellation));
+        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
+        $cancellation = Double::for(CancellationInterface::class)->strict();
+        $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
+        $span->allows('export')->with(['foo', 'bar'], $cancellation)->returns(Double::for(FutureInterface::class)->strict());
+        Assert::instanceOf($exporter->export(['foo', 'bar'], $cancellation), FutureInterface::class);
     }
 
     public function testFromConnectionString(): void
     {
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Method is not supported.');
-
-        $exporter = new DeferredSpanExporter(m::mock(ExporterFactory::class));
-
+        Expect::exception(\Exception::class)->withMessageContaining('Method is not supported.');
+        $exporter = new DeferredSpanExporter(Double::for(ExporterFactory::class)->strict());
         $exporter::fromConnectionString('https://test.com', 'foo', 'bar');
     }
 
     #[DataProvider('provideData')]
     public function testOtherMethods(string $method, $cancellation): void
     {
-        $exporter = new DeferredSpanExporter($factory = m::mock(ExporterFactory::class));
+        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
 
-        $factory->shouldReceive('create')->withNoArgs()->andReturn(
-            $span = m::mock(SpanExporterInterface::class)
-        );
+        $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
 
-        $span->shouldReceive($method)->with($cancellation)->andReturn(true);
+        $span->allows($method)->with($cancellation)->returns(true);
 
-        $this->assertSame(true, $cancellation ? $exporter->$method($cancellation) : $exporter->$method());
+        Assert::same($cancellation ? $exporter->$method($cancellation) : $exporter->$method(), true);
     }
 
     public static function provideData(): array
@@ -80,7 +64,7 @@ class DeferredSpanExporterTest extends TestCase
             ],
             [
                 'method' => 'shutdown',
-                'cancellation' => m::mock(CancellationInterface::class)
+                'cancellation' => Double::for(CancellationInterface::class)->strict()
             ],
             [
                 'method' => 'forceFlush',
@@ -88,7 +72,7 @@ class DeferredSpanExporterTest extends TestCase
             ],
             [
                 'method' => 'forceFlush',
-                'cancellation' => m::mock(CancellationInterface::class)
+                'cancellation' => Double::for(CancellationInterface::class)->strict()
             ],
         ];
     }
