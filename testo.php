@@ -10,10 +10,8 @@ use Testo\Bridge\Double\DoublePlugin;
 return new ApplicationConfig(
     src: ['src'],
     suites: [
-        new SuiteConfig(
-            name: 'OpenTelemetry Bridge',
-            location: ['tests/src'],
-        ),
+        new SuiteConfig(name: 'Unit', location: ['tests/Unit']),
+        new SuiteConfig(name: 'Feature', location: ['tests/Feature']),
     ],
     plugins: [
         new SpiralTestingPlugin(),

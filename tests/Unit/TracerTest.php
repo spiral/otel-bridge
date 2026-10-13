@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests;
+namespace Spiral\OpenTelemetry\Tests\Unit;
 
 use Spiral\Telemetry\SpanInterface;
 use Testo\Test;

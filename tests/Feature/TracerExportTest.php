@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests;
+namespace Spiral\OpenTelemetry\Tests\Feature;
 
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;

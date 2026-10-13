@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests\Trace;
+namespace Spiral\OpenTelemetry\Tests\Unit\Trace;
 
 use Testo\Data\DataProvider;
 use Testo\Test;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests;
+namespace Spiral\OpenTelemetry\Tests\Unit;
 
 use Testo\Test;
 use JMac\Testing\Double;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests\Bootloader;
+namespace Spiral\OpenTelemetry\Tests\Feature\Bootloader;
 
 use Testo\Assert;
 use Testo\Test;
@@ -12,7 +12,7 @@ use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
-use Spiral\OpenTelemetry\Tests\TestCase;
+use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use OpenTelemetry\SDK\Trace\Tracer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\TracerFactory;

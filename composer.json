@@ -57,7 +57,8 @@
     "autoload-dev": {
         "psr-4": {
             "Spiral\\OpenTelemetry\\Tests\\App\\": "tests/app",
-            "Spiral\\OpenTelemetry\\Tests\\": "tests/src"
+            "Spiral\\OpenTelemetry\\Tests\\Feature\\": "tests/Feature",
+            "Spiral\\OpenTelemetry\\Tests\\Unit\\": "tests/Unit"
         }
     },
     "scripts": {
@@ -66,7 +67,9 @@
         "psalm": "psalm",
         "psalm:baseline": "psalm --set-baseline=psalm-baseline.xml",
         "psalm:ci": "psalm --output-format=github --shepherd --show-info=false --stats --threads=4",
-        "test": "testo"
+        "test": "testo",
+        "test:feature": "testo --suite=Feature",
+        "test:unit": "testo --suite=Unit"
     },
     "config": {
         "sort-packages": true,
