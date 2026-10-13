@@ -18,6 +18,9 @@ final class DeferredSpanExporter implements SpanExporterInterface
         private readonly ExporterFactory $exporterFactory,
     ) {}
 
+    /**
+     * @deprecated Not part of {@see SpanExporterInterface} and always throws; will be removed in the next major version.
+     */
     public static function fromConnectionString(string $endpointUrl, string $name, string $args): void
     {
         throw new \Exception('Method is not supported.');

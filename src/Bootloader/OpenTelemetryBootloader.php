@@ -34,7 +34,7 @@ final class OpenTelemetryBootloader extends Bootloader
         ClockInterface::class => SystemClock::class,
     ];
 
-    public function init(EnvironmentInterface $env, TelemetryBootloader $telemetry): void
+    public function init(TelemetryBootloader $telemetry): void
     {
         $telemetry->registerTracer('otel', TracerFactory::class);
     }
