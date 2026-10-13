@@ -4,38 +4,38 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests;
 
+use Testo\Test;
+use JMac\Testing\Double;
+use JMac\Testing\Matching\Argument;
+use Testo\Assert;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\ScopeInterface;
 use Spiral\OpenTelemetry\TracerFactory;
-use Mockery as m;
 use Spiral\Telemetry\TracerInterface as TelemetryTracerInterface;
 
-class TracerFactoryTest extends TestCase
+#[Test]
+final class TracerFactoryTest
 {
     public function testMake(): void
     {
         $factory = new TracerFactory(
-            m::mock(ScopeInterface::class),
-            m::mock(TracerInterface::class),
-            $propagator = m::mock(TextMapPropagatorInterface::class)
+            Double::for(ScopeInterface::class)->strict(),
+            Double::for(TracerInterface::class)->strict(),
+            $propagator = Double::for(TextMapPropagatorInterface::class)->strict()
         );
-
-        $propagator->shouldReceive('fields')->withNoArgs()->andReturn();
-
-        $this->assertInstanceOf(TelemetryTracerInterface::class, $factory->make(['foo' => 'bar']));
+        $propagator->allows('fields')->with(Argument::none())->returns([]);
+        Assert::instanceOf($factory->make(['foo' => 'bar']), TelemetryTracerInterface::class);
     }
 
     public function testMakePropagatesContext(): void
     {
         $factory = new TracerFactory(
-            m::mock(ScopeInterface::class),
-            m::mock(TracerInterface::class),
-            $propagator = m::mock(TextMapPropagatorInterface::class)
+            Double::for(ScopeInterface::class)->strict(),
+            Double::for(TracerInterface::class)->strict(),
+            $propagator = Double::for(TextMapPropagatorInterface::class)->strict()
         );
-
-        $propagator->shouldReceive('fields')->withNoArgs()->andReturn(['foo3', 'foo4', 'foo5']);
-
+        $propagator->allows('fields')->with(Argument::none())->returns(['foo3', 'foo4', 'foo5']);
         $tracer = $factory->make([
             'foo1' => 'bar1',
             'foo2' => 'bar2',
@@ -44,9 +44,7 @@ class TracerFactoryTest extends TestCase
             'foo5' => 'bar5',
             'foo6' => 'bar6',
         ]);
-
         $propagated = ['foo3' => 'bar3', 'foo4' => 'bar4', 'foo5' => 'bar5'];
-
-        $this->assertEquals($propagated, $tracer->getContext());
+        Assert::equals($tracer->getContext(), $propagated);
     }
 }

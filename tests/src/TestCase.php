@@ -1,20 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Spiral\OpenTelemetry\Tests;
 
-class TestCase extends \Spiral\Testing\TestCase
+use Spiral\Boot\Bootloader\ConfigurationBootloader;
+use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
+
+abstract class TestCase extends \Spiral\Testing\TestCase
 {
     public function rootDirectory(): string
     {
-        return __DIR__.'/../';
+        return __DIR__ . '/..';
     }
 
     public function defineBootloaders(): array
     {
         return [
-            \Spiral\Boot\Bootloader\ConfigurationBootloader::class,
-            \Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader::class,
-            // ...
+            ConfigurationBootloader::class,
+            OpenTelemetryBootloader::class,
         ];
     }
 }
