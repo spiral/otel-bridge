@@ -16,7 +16,9 @@ use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
+use Testo\Expect;
 use Testo\Lifecycle\BeforeTest;
 use Testo\Test;
 
@@ -24,10 +26,12 @@ use Testo\Test;
  * Runs the tracer against the real OpenTelemetry SDK and checks the exported spans.
  */
 #[Test]
+#[Covers(Tracer::class)]
 final class TracerExportTest
 {
     private const TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
     private const PARENT_SPAN_ID = 'b7ad6b7169203331';
+    private const TRACEPARENT = '00-' . self::TRACE_ID . '-' . self::PARENT_SPAN_ID . '-01';
 
     private InMemoryExporter $exporter;
     private TracerProvider $provider;
@@ -119,14 +123,21 @@ final class TracerExportTest
         Assert::same($this->exporter->getSpans()[0]->getStartEpochNanos(), 1_700_000_000_000_000_000);
     }
 
-    public function exceptionIsRecordedAndRethrown(): void
+    public function exceptionIsRethrown(): never
     {
-        $exception = new \RuntimeException('Boom');
+        $tracer = $this->createTracer();
+
+        Expect::exception(\RuntimeException::class)->withMessage('Boom');
+
+        $tracer->trace('test', static fn() => throw new \RuntimeException('Boom'));
+    }
+
+    public function exceptionIsRecordedAsEvent(): void
+    {
         try {
-            $this->createTracer()->trace('test', static fn() => throw $exception);
-            Assert::fail('The exception is not rethrown.');
-        } catch (\RuntimeException $e) {
-            Assert::same($e, $exception);
+            $this->createTracer()->trace('test', static fn() => throw new \RuntimeException('Boom'));
+        } catch (\RuntimeException) {
+            # Rethrowing is checked by exceptionIsRethrown(); this test only needs the span.
         }
 
         $events = $this->exporter->getSpans()[0]->getEvents();
@@ -137,9 +148,10 @@ final class TracerExportTest
     public function traceStateIsPropagated(): void
     {
         $tracer = $this->createTracer([
-            'traceparent' => '00-' . self::TRACE_ID . '-' . self::PARENT_SPAN_ID . '-01',
+            'traceparent' => self::TRACEPARENT,
             'tracestate' => 'vendor=value',
         ]);
+
         $tracer->trace('test', static fn() => null);
 
         Assert::same($tracer->getContext()['tracestate'] ?? null, 'vendor=value');
@@ -149,7 +161,7 @@ final class TracerExportTest
     {
         $span = $this->traceOne(
             static fn() => null,
-            context: ['traceparent' => '00-' . self::TRACE_ID . '-' . self::PARENT_SPAN_ID . '-01'],
+            context: ['traceparent' => self::TRACEPARENT],
         );
 
         Assert::same($span->getTraceId(), self::TRACE_ID);
@@ -158,7 +170,7 @@ final class TracerExportTest
 
     public function contextIsReturnedUntilFirstTrace(): void
     {
-        $context = ['traceparent' => '00-' . self::TRACE_ID . '-' . self::PARENT_SPAN_ID . '-01'];
+        $context = ['traceparent' => self::TRACEPARENT];
 
         Assert::same($this->createTracer($context)->getContext(), $context);
     }
@@ -166,9 +178,10 @@ final class TracerExportTest
     public function contextPointsToLastSpanAfterTrace(): void
     {
         $tracer = $this->createTracer();
-        $tracer->trace('test', static fn() => null);
-        $span = $this->exporter->getSpans()[0];
 
+        $tracer->trace('test', static fn() => null);
+
+        $span = $this->exporter->getSpans()[0];
         Assert::same(
             $tracer->getContext(),
             ['traceparent' => '00-' . $span->getTraceId() . '-' . $span->getSpanId() . '-01'],

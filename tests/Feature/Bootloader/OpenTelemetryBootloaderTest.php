@@ -4,49 +4,40 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Feature\Bootloader;
 
-use Testo\Assert;
-use Testo\Test;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
+use OpenTelemetry\SDK\Trace\Tracer;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
+use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
-use OpenTelemetry\SDK\Trace\Tracer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Config\TelemetryConfig;
+use Testo\Assert;
+use Testo\Codecov\Covers;
+use Testo\Data\DataSet;
+use Testo\Test;
 
+#[Test]
+#[Covers(OpenTelemetryBootloader::class)]
 final class OpenTelemetryBootloaderTest extends TestCase
 {
-    #[Test]
-    public function testTracerInterfaceBinding(): void
+    #[DataSet([TracerInterface::class, Tracer::class], 'tracer')]
+    #[DataSet([TracerProviderInterface::class, TracerProvider::class], 'tracer provider')]
+    #[DataSet([SpanExporterInterface::class, DeferredSpanExporter::class], 'span exporter')]
+    #[DataSet([TextMapPropagatorInterface::class, TraceContextPropagator::class], 'propagator')]
+    public function bindsOpenTelemetryService(string $alias, string $class): void
     {
-        $this->assertContainerBound(TracerInterface::class, Tracer::class);
+        $this->assertContainerBound($alias, $class);
     }
 
-    #[Test]
-    public function testTracerProviderInterfaceBinding(): void
+    public function registersOtelTracerDriver(): void
     {
-        $this->assertContainerBound(TracerProviderInterface::class, TracerProvider::class);
-    }
+        $driver = $this->getConfig(TelemetryConfig::CONFIG)['drivers']['otel'] ?? null;
 
-    #[Test]
-    public function testSpanExporterInterfaceBinding(): void
-    {
-        $this->assertContainerBound(SpanExporterInterface::class, DeferredSpanExporter::class);
-    }
-
-    #[Test]
-    public function testTextMapPropagatorInterfaceBinding(): void
-    {
-        $this->assertContainerBound(TextMapPropagatorInterface::class, TraceContextPropagator::class);
-    }
-
-    #[Test]
-    public function testOtelTracerDriverRegistered(): void
-    {
-        Assert::same($this->getConfig(TelemetryConfig::CONFIG)['drivers']['otel'] ?? null, TracerFactory::class);
+        Assert::same($driver, TracerFactory::class);
     }
 }
