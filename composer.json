@@ -40,11 +40,15 @@
         "open-telemetry/sem-conv": "<1.22"
     },
     "require-dev": {
+        "buggregator/trap": "^1.17",
         "llm/skills": "^1.14",
+        "nyholm/psr7": "^1.8",
+        "open-telemetry/exporter-otlp": "^1.4",
         "roxblnfk/unpoly": "^1.8",
         "spiral/code-style": "^2.4",
         "spiral/dumper": "^3.3",
         "spiral/testing": "4.x-dev as 4.0.0",
+        "symfony/http-client": "^6.4 || ^7.0 || ^8.0",
         "testo/bridge-double": "^0.1.1",
         "testo/testo": "^0.10.54",
         "vimeo/psalm": "^6 || ^7"
@@ -56,6 +60,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "Spiral\\OpenTelemetry\\Tests\\Acceptance\\": "tests/Acceptance",
             "Spiral\\OpenTelemetry\\Tests\\App\\": "tests/app",
             "Spiral\\OpenTelemetry\\Tests\\Feature\\": "tests/Feature",
             "Spiral\\OpenTelemetry\\Tests\\Unit\\": "tests/Unit"
@@ -68,6 +73,7 @@
         "psalm:baseline": "psalm --set-baseline=psalm-baseline.xml",
         "psalm:ci": "psalm --output-format=github --shepherd --show-info=false --stats --threads=4",
         "test": "testo",
+        "test:acceptance": "testo --suite=Acceptance",
         "test:feature": "testo --suite=Feature",
         "test:unit": "testo --suite=Unit"
     },
