@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
-use Spiral\OpenTelemetry\Tests\Acceptance\App\HttpBootloader;
+use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\ReceivedSpan;
 use Spiral\Testing\Attribute\Env;
 use Testo\Assert;

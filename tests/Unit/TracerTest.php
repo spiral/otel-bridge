@@ -4,35 +4,45 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Unit;
 
-use Spiral\Telemetry\SpanInterface;
-use Testo\Test;
 use JMac\Testing\Double;
+use JMac\Testing\DoubleInterface;
 use JMac\Testing\Matching\Argument;
-use Testo\Assert;
-use Testo\Expect;
-use OpenTelemetry\API\Trace\SpanBuilderInterface;
 use OpenTelemetry\API\Trace\Span;
+use OpenTelemetry\API\Trace\SpanBuilderInterface;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\ContextKeys;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Tracer;
+use Spiral\Telemetry\SpanInterface;
+use Testo\Assert;
+use Testo\Codecov\Covers;
+use Testo\Expect;
+use Testo\Lifecycle\BeforeTest;
+use Testo\Test;
 
 #[Test]
+#[Covers(Tracer::class)]
 final class TracerTest
 {
-    public function testTrace(): void
+    private DoubleInterface&TracerInterface $otelTracer;
+    private Tracer $tracer;
+
+    #[BeforeTest]
+    public function createTracer(): void
     {
-        $tracer = new Tracer(
+        $this->otelTracer = Double::for(TracerInterface::class)->strict();
+        $this->tracer = new Tracer(
             new Container(),
-            $tracerMockery = Double::for(TracerInterface::class)->strict(),
+            $this->otelTracer,
             Double::for(TextMapPropagatorInterface::class)->strict(),
         );
-        $tracerMockery->expects('spanBuilder')->with('test')->returns($spanBuilder = Double::for(SpanBuilderInterface::class)->strict());
-        $spanBuilder->allows('setStartTimestamp')->with(9999)->returns($spanBuilder);
-        $spanBuilder->expects('setSpanKind')->with(0)->returns($spanBuilder);
-        $spanBuilder->expects('startSpan')->returns($span = Double::for(Span::class)->strict());
+    }
+
+    public function traceSetsNormalizedAttributesAndReturnsCallbackResult(): void
+    {
+        $span = $this->expectSpanStarted();
         $span->expects('updateName')->with('test')->returns($span);
         $span->allows('setAttributes')->with(Argument::satisfies(static fn(mixed $attributes): bool => $attributes == [
             'baz' => 'baf',
@@ -45,7 +55,8 @@ final class TracerTest
             'jsonable' => '{"foo":{"bar":"baz"}}',
         ]))->returns($span);
         $span->expects('end')->with(Argument::none())->returns($span);
-        $result = $tracer->trace(
+
+        $result = $this->tracer->trace(
             'test',
             callback: static function (SpanInterface $span) {
                 $span->setAttribute('baz', 'baf');
@@ -70,25 +81,20 @@ final class TracerTest
             attributes: ['foo' => 'bar'],
             startTime: 9999,
         );
+
         Assert::same($result, 'test');
     }
 
-    public function testTraceWithException(): void
+    public function traceRecordsAndRethrowsCallbackException(): never
     {
         $exception = new \ErrorException('Something went wrong');
-        Expect::exception(\ErrorException::class)->withMessageContaining('Something went wrong');
-        $tracer = new Tracer(
-            new Container(),
-            $tracerMockery = Double::for(TracerInterface::class)->strict(),
-            Double::for(TextMapPropagatorInterface::class)->strict(),
-        );
-        $tracerMockery->expects('spanBuilder')->with('test')->returns($spanBuilder = Double::for(SpanBuilderInterface::class)->strict());
-        $spanBuilder->allows('setStartTimestamp')->with(9999)->returns($spanBuilder);
-        $spanBuilder->expects('setSpanKind')->with(0)->returns($spanBuilder);
-        $spanBuilder->expects('startSpan')->returns($span = Double::for(Span::class)->strict());
+        $span = $this->expectSpanStarted();
         $span->expects('end')->with(Argument::none())->returns($span);
         $span->expects('recordException')->with($exception)->returns($span);
-        $result = $tracer->trace(
+
+        Expect::exception(\ErrorException::class)->withMessageContaining('Something went wrong');
+
+        $this->tracer->trace(
             'test',
             callback: static function () use ($exception) {
                 throw $exception;
@@ -96,20 +102,11 @@ final class TracerTest
             attributes: ['foo' => 'bar'],
             startTime: 9999,
         );
-        Assert::same($result, 'test');
     }
 
-    public function testScopedTrace(): void
+    public function scopedTraceActivatesSpanForCallback(): void
     {
-        $tracer = new Tracer(
-            new Container(),
-            $tracerMockery = Double::for(TracerInterface::class)->strict(),
-            Double::for(TextMapPropagatorInterface::class)->strict(),
-        );
-        $tracerMockery->expects('spanBuilder')->with('test')->returns($spanBuilder = Double::for(SpanBuilderInterface::class)->strict());
-        $spanBuilder->allows('setStartTimestamp')->with(9999)->returns($spanBuilder);
-        $spanBuilder->expects('setSpanKind')->with(0)->returns($spanBuilder);
-        $spanBuilder->expects('startSpan')->returns($span = Double::for(Span::class)->strict());
+        $span = $this->expectSpanStarted();
         $span->expects('updateName')->with('test')->returns($span);
         $span->allows('setAttributes')->with(Argument::satisfies(static fn(mixed $attributes): bool => $attributes == ['baz' => 'baf', 'foo' => 'bar']))->returns($span);
         $span->expects('end')->with(Argument::none())->returns($span);
@@ -119,7 +116,8 @@ final class TracerTest
             static fn(ContextInterface $context): ContextInterface => $context->with(ContextKeys::span(), $span),
         );
         $activeSpan = null;
-        $result = $tracer->trace(
+
+        $result = $this->tracer->trace(
             'test',
             callback: static function (SpanInterface $span) use (&$activeSpan) {
                 $activeSpan = Span::getCurrent();
@@ -130,8 +128,24 @@ final class TracerTest
             scoped: true,
             startTime: 9999,
         );
+
         Assert::same($result, 'test');
         Assert::same($activeSpan, $span);
         Assert::notSame(Span::getCurrent(), $span);
+    }
+
+    /**
+     * Expects the span `test` of kind INTERNAL to be built with start time 9999 and started.
+     */
+    private function expectSpanStarted(): DoubleInterface&Span
+    {
+        $span = Double::for(Span::class)->strict();
+        $spanBuilder = Double::for(SpanBuilderInterface::class)->strict();
+        $this->otelTracer->expects('spanBuilder')->with('test')->returns($spanBuilder);
+        $spanBuilder->allows('setStartTimestamp')->with(9999)->returns($spanBuilder);
+        $spanBuilder->expects('setSpanKind')->with(0)->returns($spanBuilder);
+        $spanBuilder->expects('startSpan')->returns($span);
+
+        return $span;
     }
 }

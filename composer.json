@@ -41,6 +41,7 @@
     },
     "require-dev": {
         "buggregator/trap": "^1.17",
+        "jasonmccreary/double": "^1.0.1",
         "llm/skills": "^1.14",
         "nyholm/psr7": "^1.8",
         "open-telemetry/exporter-otlp": "^1.4",
