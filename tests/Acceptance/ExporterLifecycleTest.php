@@ -8,7 +8,7 @@ use OpenTelemetry\API\Behavior\Internal\Logging;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Spiral\Boot\FinalizerInterface;
-use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\ExporterLifecycleLogWriter;
+use Spiral\OpenTelemetry\Tests\Acceptance\Support\SdkLogWriter;
 use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Data\DataSet;
@@ -33,7 +33,7 @@ final class ExporterLifecycleTest extends TestCase
 {
     private const SPANS = ['first', 'second', 'third'];
 
-    private ExporterLifecycleLogWriter $log;
+    private SdkLogWriter $log;
 
     /** Results of the flushes made by {@see flushOnFinalize()}; disarmed after the test. */
     private ?\stdClass $finalizerFlushes = null;
@@ -41,7 +41,7 @@ final class ExporterLifecycleTest extends TestCase
     #[BeforeTest]
     public function captureSdkLog(): void
     {
-        $this->log = new ExporterLifecycleLogWriter();
+        $this->log = new SdkLogWriter();
         Logging::setLogWriter($this->log);
     }
 

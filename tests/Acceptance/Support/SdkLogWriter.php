@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests\Acceptance\Fixture;
+namespace Spiral\OpenTelemetry\Tests\Acceptance\Support;
 
 use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use Psr\Log\LogLevel;
@@ -10,7 +10,7 @@ use Psr\Log\LogLevel;
 /**
  * Records what the OpenTelemetry SDK reports through its internal logger instead of writing it to `error_log`.
  */
-final class ExporterLifecycleLogWriter implements LogWriterInterface
+final class SdkLogWriter implements LogWriterInterface
 {
     private const PROBLEMS = [LogLevel::WARNING, LogLevel::ERROR, LogLevel::CRITICAL, LogLevel::ALERT, LogLevel::EMERGENCY];
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
+use OpenTelemetry\API\Behavior\Internal\Logging;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesHttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesJson;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesPassMiddleware;
@@ -11,6 +12,7 @@ use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesPriority;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesSize;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesStatus;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\AttributesText;
+use Spiral\OpenTelemetry\Tests\Acceptance\Support\SdkLogWriter;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TracerInterface;
 use Spiral\Testing\Attribute\Env;
@@ -374,14 +376,23 @@ final class AttributesTest extends TestCase
     #[Env('OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT', '2')]
     public function countLimitKeepsFirstKeysAndOverrides(): void
     {
-        $this->tracer()->trace(self::SPAN, static function (SpanInterface $span): void {
-            $span->setAttribute('a', 'override');
-            $span->setAttribute('c', 'over the limit');
-        }, attributes: ['a' => 'start', 'b' => ['x', 'y']]);
+        # The SDK warns about dropped attributes; keep it off stderr, where Infection stops the run.
+        $log = new SdkLogWriter();
+        Logging::setLogWriter($log);
+
+        try {
+            $this->tracer()->trace(self::SPAN, static function (SpanInterface $span): void {
+                $span->setAttribute('a', 'override');
+                $span->setAttribute('c', 'over the limit');
+            }, attributes: ['a' => 'start', 'b' => ['x', 'y']]);
+        } finally {
+            Logging::reset();
+        }
 
         $span = $this->traces()->await(1)->named(self::SPAN);
         Assert::same($span->attributes, ['a' => 'override', 'b' => ['x', 'y']]);
         Assert::same($span->droppedAttributesCount, 1);
+        Assert::same(\count($log->problems()), 1);
     }
 
     /**
