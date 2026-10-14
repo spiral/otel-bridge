@@ -4,96 +4,111 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Unit\Trace;
 
-use Testo\Data\DataProvider;
-use Testo\Test;
 use JMac\Testing\Double;
+use JMac\Testing\DoubleInterface;
 use JMac\Testing\Matching\Argument;
-use Testo\Assert;
-use Testo\Expect;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
+use Testo\Assert;
+use Testo\Codecov\Covers;
+use Testo\Data\DataProvider;
+use Testo\Expect;
+use Testo\Lifecycle\BeforeTest;
+use Testo\Test;
 
 #[Test]
+#[Covers(DeferredSpanExporter::class)]
 final class DeferredSpanExporterTest
 {
-    public function testExport(): void
+    private DoubleInterface&ExporterFactory $factory;
+    private DeferredSpanExporter $exporter;
+
+    public static function delegatedCalls(): iterable
     {
-        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
-        $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
-        $span->allows('export')->with(['foo', 'bar'], null)->returns($future = Double::for(FutureInterface::class)->strict());
-        Assert::same($exporter->export(['foo', 'bar']), $future);
+        yield 'shutdown' => ['shutdown', null];
+        yield 'shutdown with cancellation' => ['shutdown', Double::for(CancellationInterface::class)->strict()];
+        yield 'forceFlush' => ['forceFlush', null];
+        yield 'forceFlush with cancellation' => ['forceFlush', Double::for(CancellationInterface::class)->strict()];
     }
 
-    public function testExportWithCancellation(): void
+    #[BeforeTest]
+    public function createExporter(): void
     {
-        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
+        $this->factory = Double::for(ExporterFactory::class)->strict();
+        $this->exporter = new DeferredSpanExporter($this->factory);
+    }
+
+    public function exportDelegatesToCreatedExporter(): void
+    {
+        $future = Double::for(FutureInterface::class)->strict();
+        $this->createdExporter()->allows('export')->with(['foo', 'bar'], null)->returns($future);
+
+        $result = $this->exporter->export(['foo', 'bar']);
+
+        Assert::same($result, $future);
+    }
+
+    public function exportPassesCancellationToCreatedExporter(): void
+    {
         $cancellation = Double::for(CancellationInterface::class)->strict();
-        $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
-        $span->allows('export')->with(['foo', 'bar'], $cancellation)->returns(Double::for(FutureInterface::class)->strict());
-        Assert::instanceOf($exporter->export(['foo', 'bar'], $cancellation), FutureInterface::class);
+        $this->createdExporter()->allows('export')
+            ->with(['foo', 'bar'], $cancellation)
+            ->returns(Double::for(FutureInterface::class)->strict());
+
+        $result = $this->exporter->export(['foo', 'bar'], $cancellation);
+
+        Assert::instanceOf($result, FutureInterface::class);
     }
 
-    public function testFromConnectionString(): void
+    public function fromConnectionStringIsNotSupported(): never
     {
         Expect::exception(\Exception::class)->withMessageContaining('Method is not supported.');
-        $exporter = new DeferredSpanExporter(Double::for(ExporterFactory::class)->strict());
-        $exporter::fromConnectionString('https://test.com', 'foo', 'bar');
+
+        DeferredSpanExporter::fromConnectionString('https://test.com', 'foo', 'bar');
     }
 
-    #[DataProvider('provideData')]
-    public function testOtherMethods(string $method, $cancellation): void
+    #[DataProvider('delegatedCalls')]
+    public function shutdownAndForceFlushDelegateToCreatedExporter(string $method, ?CancellationInterface $cancellation): void
     {
-        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
+        $this->createdExporter()->allows($method)->with($cancellation)->returns(true);
 
-        $factory->allows('create')->with(Argument::none())->returns($span = Double::for(SpanExporterInterface::class)->strict());
+        $result = $cancellation === null ? $this->exporter->$method() : $this->exporter->$method($cancellation);
 
-        $span->allows($method)->with($cancellation)->returns(true);
-
-        Assert::same($cancellation ? $exporter->$method($cancellation) : $exporter->$method(), true);
+        Assert::true($result);
     }
 
-    public function testExportWithoutConfiguredExporter(): void
+    public function exportedFutureFailsWithoutConfiguredExporter(): never
     {
-        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
-        $factory->allows('create')->with(Argument::none())->returns(null);
-
-        $future = $exporter->export(['foo']);
+        $this->factory->allows('create')->with(Argument::none())->returns(null);
+        $future = $this->exporter->export(['foo']);
 
         Expect::exception(\BadMethodCallException::class)->withMessageContaining('Exporter is not initialized.');
+
         $future->await();
     }
 
-    public function testShutdownAndFlushWithoutConfiguredExporter(): void
+    public function shutdownAndForceFlushFailWithoutConfiguredExporter(): void
     {
-        $exporter = new DeferredSpanExporter($factory = Double::for(ExporterFactory::class)->strict());
-        $factory->allows('create')->with(Argument::none())->returns(null);
+        $this->factory->allows('create')->with(Argument::none())->returns(null);
 
-        Assert::false($exporter->forceFlush());
-        Assert::false($exporter->shutdown());
+        $flushed = $this->exporter->forceFlush();
+        $shutDown = $this->exporter->shutdown();
+
+        Assert::false($flushed);
+        Assert::false($shutDown);
     }
 
-    public static function provideData(): array
+    /**
+     * The exporter the factory creates on the first call that needs one.
+     */
+    private function createdExporter(): DoubleInterface&SpanExporterInterface
     {
-        return [
-            [
-                'method' => 'shutdown',
-                'cancellation' => null
-            ],
-            [
-                'method' => 'shutdown',
-                'cancellation' => Double::for(CancellationInterface::class)->strict()
-            ],
-            [
-                'method' => 'forceFlush',
-                'cancellation' => null
-            ],
-            [
-                'method' => 'forceFlush',
-                'cancellation' => Double::for(CancellationInterface::class)->strict()
-            ],
-        ];
+        $exporter = Double::for(SpanExporterInterface::class)->strict();
+        $this->factory->allows('create')->with(Argument::none())->returns($exporter);
+
+        return $exporter;
     }
 }
