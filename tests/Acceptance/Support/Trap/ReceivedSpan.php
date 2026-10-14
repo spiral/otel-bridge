@@ -7,6 +7,10 @@ namespace Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap;
 /**
  * A span as Trap received it over OTLP: ids are lowercase hex, times are nanoseconds, and kind and
  * status code keep their OTLP numbers, which differ from the PHP API constants.
+ *
+ * `flags` is the OTLP `SpanFlags` field: the low byte holds the W3C trace flags, bit 0x100 says whether
+ * the parent is known to be remote or not and bit 0x200 that it is remote
+ * (https://github.com/open-telemetry/opentelemetry-proto/blob/v1.5.0/opentelemetry/proto/trace/v1/trace.proto#L122).
  */
 final readonly class ReceivedSpan
 {
@@ -38,6 +42,11 @@ final readonly class ReceivedSpan
         public array $events,
         public int $statusCode,
         public string $statusMessage,
+        public int $flags,
+        public string $traceState,
+        public int $droppedAttributesCount,
+        public int $droppedEventsCount,
+        public int $droppedLinksCount,
     ) {}
 
     /**
@@ -66,6 +75,11 @@ final readonly class ReceivedSpan
             ),
             statusCode: (int) ($span['status']['code'] ?? self::STATUS_UNSET),
             statusMessage: (string) ($span['status']['message'] ?? ''),
+            flags: (int) ($span['flags'] ?? 0),
+            traceState: (string) ($span['traceState'] ?? ''),
+            droppedAttributesCount: (int) ($span['droppedAttributesCount'] ?? 0),
+            droppedEventsCount: (int) ($span['droppedEventsCount'] ?? 0),
+            droppedLinksCount: (int) ($span['droppedLinksCount'] ?? 0),
         );
     }
 
@@ -84,13 +98,14 @@ final readonly class ReceivedSpan
     public function __toString(): string
     {
         return \sprintf(
-            '%s span=%s parent=%s trace=%s kind=%d status=%d',
+            '%s span=%s parent=%s trace=%s kind=%d status=%d flags=0x%x',
             $this->name,
             $this->spanId,
             $this->parentSpanId ?? '-',
             $this->traceId,
             $this->kind,
             $this->statusCode,
+            $this->flags,
         );
     }
 }

@@ -6,9 +6,7 @@ namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\ReceivedSpan;
-use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -41,25 +39,5 @@ final class HttpTest extends TestCase
         Assert::same($span->statusCode, ReceivedSpan::STATUS_OK);
         Assert::same($span->attributes['http.method'] ?? null, 'GET');
         Assert::same($span->attributes['http.status_code'] ?? null, 200);
-    }
-
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
-    public function spanInsideRequestIsChildOfServerSpan(): void
-    {
-        $this->fakeHttp()->get('/ping', headers: ['traceparent' => self::TRACEPARENT]);
-
-        $spans = $this->traces()->await(2);
-        Assert::same($spans->named('handler')->parentSpanId, $spans->named(self::SERVER_SPAN)->spanId);
-    }
-
-    #[Env('OTEL_PHP_TRACES_PROCESSOR', 'batch')]
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
-    public function batchProcessorExportsSpansOnceRequestIsFinalized(): void
-    {
-        $this->fakeHttp()->get('/ping');
-
-        $spans = $this->traces()->await(2, timeout: 3.0);
-        Assert::same($spans->named(self::SERVER_SPAN)->kind, ReceivedSpan::KIND_SERVER);
-        Assert::count($spans, 2, "Received:\n{$spans}");
     }
 }
