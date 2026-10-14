@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap;
 
 use Spiral\Boot\EnvironmentInterface;
+use Spiral\Boot\FinalizerInterface;
 use Spiral\Core\Container;
 use Spiral\Testing\AppContext;
 use Spiral\Testing\Attribute\Env;
@@ -22,6 +23,9 @@ use Testo\Pipeline\Middleware\TestRunInterceptor;
  * so the `OTEL_*` values the app ends up with (`ENV` of the test case, `#[Env]`, the endpoint and a
  * per-test service name set here) are copied into the process env before the app boots and restored
  * once the test is over. The test then finds a {@see SpanCollector} for its service name in the container.
+ *
+ * Before the env is restored the app is finalized the way the kernel does it when it is destructed, see
+ * {@see self::terminate()}.
  */
 #[InterceptorOptions(
     # After #[Env] and the other configure-stage attributes, before the app boots.
@@ -62,15 +66,40 @@ final readonly class OtelEnvInterceptor implements TestRunInterceptor
             $container->bindSingleton(SpanCollector::class, new SpanCollector(
                 $server->dumpDirectory(),
                 (string) $env->get('OTEL_SERVICE_NAME'),
+                $server->endpoint(),
             ));
         });
 
         try {
             return $next($info);
         } finally {
+            self::terminate($context);
             foreach ($previous as $key => $value) {
                 \putenv($value === false ? (string) $key : "{$key}={$value}");
             }
+        }
+    }
+
+    /**
+     * Runs `finalize(terminate: true)`, which the kernel runs only from its destructor.
+     *
+     * spiral/testing does not destroy the kernel after a test, so without this the finalizers would run
+     * at process exit, after the test env is restored and Trap is stopped, and an export they make would
+     * go to the SDK default endpoint. The destructor still runs them once more at exit, so a finalizer
+     * has to cope with a second terminating call, as it must in a worker anyway.
+     *
+     * A failing finalizer is ignored, as FakeHttp ignores it after a request: tests that care call
+     * `finalize()` themselves and assert on it.
+     */
+    private static function terminate(AppContext $context): void
+    {
+        if (!$context->isBooted()) {
+            return;
+        }
+
+        try {
+            $context->getContainer()->get(FinalizerInterface::class)->finalize(terminate: true);
+        } catch (\Throwable) {
         }
     }
 

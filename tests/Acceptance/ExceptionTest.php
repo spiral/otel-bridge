@@ -118,7 +118,7 @@ final class ExceptionTest extends TestCase
     {
         self::rescue(fn() => $this->tracer()->trace('once', static fn() => throw new \RuntimeException('fail')));
 
-        $spans = $this->traces()->await(1, settle: 0.6);
+        $spans = $this->traces()->await(1);
         Assert::count($spans, 1, "Received:\n{$spans}");
         Assert::int($spans->named('once')->endTimeUnixNano)->greaterThanOrEqual($spans->named('once')->startTimeUnixNano);
     }

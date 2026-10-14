@@ -11,7 +11,6 @@ use Spiral\Boot\FinalizerInterface;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\BatchProcessorProbeBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\ReceivedSpan;
-use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
 use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Data\DataSet;
@@ -33,9 +32,6 @@ final class BatchProcessorTest extends TestCase
 {
     private const SERVER_SPAN = 'GET /ping';
 
-    /** Long enough for an export that was going to happen to reach Trap. */
-    private const QUIET_PERIOD = 0.5;
-
     public function defineBootloaders(): array
     {
         return [...parent::defineBootloaders(), HttpBootloader::class, BatchProcessorProbeBootloader::class];
@@ -45,14 +41,14 @@ final class BatchProcessorTest extends TestCase
     {
         $this->tracer()->trace('queued', static fn() => null);
 
-        Assert::count($this->quietlyReceived(), 0);
+        Assert::count($this->traces()->settled(), 0);
     }
 
     #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function finalizeFlushesQueuedSpans(): void
     {
         $this->tracer()->trace('job', static fn() => null, attributes: ['job.id' => 7]);
-        $before = $this->quietlyReceived();
+        $before = $this->traces()->settled();
 
         $this->finalizer()->finalize(false);
 
@@ -73,7 +69,7 @@ final class BatchProcessorTest extends TestCase
         $first = $this->traces()->await(1, timeout: 3.0);
 
         $this->tracer()->trace('second', static fn() => null);
-        $held = $this->quietlyReceived();
+        $held = $this->traces()->settled();
         $this->finalizer()->finalize(false);
         $this->tracer()->trace('third', static fn() => null);
         $this->finalizer()->finalize(false);
@@ -172,7 +168,7 @@ final class BatchProcessorTest extends TestCase
             $this->tracer()->trace("span {$i}", static fn() => null);
         }
 
-        $received = $this->quietlyReceived();
+        $received = $this->traces()->settled();
         Assert::count($received, $exported, "Received:\n{$received}");
     }
 
@@ -184,7 +180,7 @@ final class BatchProcessorTest extends TestCase
         for ($i = 1; $i <= 5; ++$i) {
             $this->tracer()->trace("span {$i}", static fn() => null);
         }
-        $beforeFinalize = $this->quietlyReceived();
+        $beforeFinalize = $this->traces()->settled();
 
         $this->finalizer()->finalize(false);
 
@@ -215,7 +211,7 @@ final class BatchProcessorTest extends TestCase
         \usleep(50_000);
         $this->tracer()->trace('late', static fn() => null);
 
-        Assert::count($this->quietlyReceived(), 0);
+        Assert::count($this->traces()->settled(), 0);
     }
 
     /**
@@ -289,7 +285,7 @@ final class BatchProcessorTest extends TestCase
         $this->finalizer()->finalize($terminate);
 
         Assert::same($this->getContainer()->get(BatchProcessorProbeBootloader::class)->exportersCreated, 0);
-        Assert::count($this->quietlyReceived(), 0);
+        Assert::count($this->traces()->settled(), 0);
     }
 
     /**
@@ -320,23 +316,12 @@ final class BatchProcessorTest extends TestCase
         $this->finalizer()->finalize(true);
         $this->finalizer()->finalize(true);
 
-        $spans = $this->traces()->await(1, timeout: 3.0, settle: self::QUIET_PERIOD);
+        $spans = $this->traces()->await(1, timeout: 3.0);
         Assert::count($spans, 1, "Received:\n{$spans}");
     }
 
     private function finalizer(): FinalizerInterface
     {
         return $this->getContainer()->get(FinalizerInterface::class);
-    }
-
-    /**
-     * What arrived after a pause long enough for any export already triggered to land, for asserting
-     * that something was not exported.
-     */
-    private function quietlyReceived(): SpanList
-    {
-        \usleep((int) (self::QUIET_PERIOD * 1_000_000));
-
-        return $this->traces()->received();
     }
 }

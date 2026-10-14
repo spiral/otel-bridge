@@ -148,6 +148,19 @@ final class StatusCodeTest extends TestCase
         Assert::same($span->statusMessage, '');
     }
 
+    /**
+     * `spiral/http` sets 'OK' itself, which the bridge cannot tell from an explicit Ok.
+     */
+    #[DataProvider('httpServerResponses')]
+    #[Skip('Known issue: spiral/http sets status OK for every response below 500, see https://github.com/spiral/framework/issues/1311')]
+    public function serverSpanOfRequestIsUnsetForNon5xxResponse(int $code, bool $isError): void
+    {
+        $this->fakeHttp()->get('/', query: ['code' => (string) $code]);
+
+        $span = $this->traces()->await(1)->named('GET /?code=' . $code);
+        Assert::same($span->statusCode, $isError ? ReceivedSpan::STATUS_ERROR : ReceivedSpan::STATUS_UNSET);
+    }
+
     #[Env('OTEL_EXPORTER_OTLP_PROTOCOL', 'http/protobuf')]
     #[DataSet(['error', 'Payment declined', ReceivedSpan::STATUS_ERROR, 'Payment declined'], 'error')]
     #[DataSet(['ok', 'All good', ReceivedSpan::STATUS_OK, ''], 'ok')]

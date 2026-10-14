@@ -232,7 +232,7 @@ final class AttributesTest extends TestCase
     #[DataSet([['a', ["\xFF"]]], 'nested list with invalid UTF-8')]
     #[DataSet([['k' => ["\xFF"]]], 'map with nested invalid UTF-8')]
     #[DataSet([['a', [\NAN]]], 'nested NaN')]
-    #[Skip('Known issue: a value json_encode() fails on becomes false or drops the attribute, see https://github.com/spiral/otel-bridge/issues/20')]
+    #[Skip('Known issue: a value json_encode() fails on becomes false or drops the attribute, see https://github.com/spiral/otel-bridge/issues/24')]
     public function unencodableValueArrivesAsString(mixed $value): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('value', $value));
@@ -363,7 +363,8 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * Past the count limit new keys are discarded, while an existing key can still be overwritten.
+     * Past the count limit new keys are discarded and counted as dropped, while an existing key can
+     * still be overwritten.
      * https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/common/README.md#attribute-limits
      */
     #[Env('OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT', '2')]
@@ -374,7 +375,9 @@ final class AttributesTest extends TestCase
             $span->setAttribute('c', 'over the limit');
         }, attributes: ['a' => 'start', 'b' => ['x', 'y']]);
 
-        $this->assertReceived(['a' => 'override', 'b' => ['x', 'y']]);
+        $span = $this->traces()->await(1)->named(self::SPAN);
+        Assert::same($span->attributes, ['a' => 'override', 'b' => ['x', 'y']]);
+        Assert::same($span->droppedAttributesCount, 1);
     }
 
     /**

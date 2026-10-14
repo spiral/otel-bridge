@@ -32,7 +32,6 @@ use Testo\Test;
 final class ExporterLifecycleTest extends TestCase
 {
     private const SPANS = ['first', 'second', 'third'];
-    private const NO_SPANS_WAIT = 1.0;
 
     private ExporterLifecycleLogWriter $log;
 
@@ -279,8 +278,10 @@ final class ExporterLifecycleTest extends TestCase
 
     /**
      * Nothing listens on port 1: the export made when the span ends fails, gets reported once, and the app goes on.
+     * The short timeout only cuts each refused connect, which Windows retries for about 2 s.
      */
     #[Env('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://127.0.0.1:1')]
+    #[Env('OTEL_EXPORTER_OTLP_TIMEOUT', '200')]
     #[DataSet(['forceFlush'], 'forceFlush')]
     #[DataSet(['shutdown'], 'shutdown')]
     public function unreachableEndpointIsReportedAndNeverThrowsWithSimpleProcessor(string $method): void
@@ -298,6 +299,7 @@ final class ExporterLifecycleTest extends TestCase
      * With the batch processor the failing export runs inside forceFlush()/shutdown() themselves.
      */
     #[Env('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://127.0.0.1:1')]
+    #[Env('OTEL_EXPORTER_OTLP_TIMEOUT', '200')]
     #[Env('OTEL_PHP_TRACES_PROCESSOR', 'batch')]
     #[DataSet(['forceFlush'], 'forceFlush')]
     #[DataSet(['shutdown'], 'shutdown')]
@@ -317,7 +319,7 @@ final class ExporterLifecycleTest extends TestCase
      * https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration
      */
     #[Env('OTEL_SDK_DISABLED', 'true')]
-    #[Skip('Known issue: OTEL_SDK_DISABLED=true is ignored and spans are still exported, see https://github.com/spiral/otel-bridge/issues/21')]
+    #[Skip('Known issue: OTEL_SDK_DISABLED=true is ignored and spans are still exported, see https://github.com/spiral/otel-bridge/issues/25')]
     public function disabledSdkExportsNothing(): void
     {
         $this->traceSpans();
@@ -403,8 +405,7 @@ final class ExporterLifecycleTest extends TestCase
 
     private function assertNothingArrives(): void
     {
-        \usleep((int) (self::NO_SPANS_WAIT * 1_000_000));
-        $spans = $this->traces()->received();
+        $spans = $this->traces()->settled();
         Assert::count($spans, 0, "Received:\n{$spans}");
     }
 }

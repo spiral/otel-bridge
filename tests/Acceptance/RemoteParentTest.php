@@ -25,9 +25,8 @@ use Testo\Test;
  *
  * Only `scoped: true` spans are activated, so only they become parents of the spans their callback starts.
  *
- * OTLP `flags` tell where a span's parent lives: bit 0x100 says "the remote bit is known", 0x200 says
- * "the parent is remote", the low byte holds the W3C trace flags
- * (https://github.com/open-telemetry/opentelemetry-proto/blob/v1.5.0/opentelemetry/proto/trace/v1/trace.proto#L122).
+ * {@see ReceivedSpan::$flags} tell where a span's parent lives: a sampled span has 0x301 under a remote
+ * parent and 0x101 under a local one or as a root.
  */
 #[Test]
 final class RemoteParentTest extends TestCase
@@ -62,7 +61,7 @@ final class RemoteParentTest extends TestCase
         Assert::same($outer->traceId, self::TRACE_ID);
         Assert::same($outer->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::notSame($outer->spanId, self::REMOTE_SPAN_ID);
-        Assert::same($this->flags($outer), self::FLAGS_REMOTE_PARENT);
+        Assert::same($outer->flags, self::FLAGS_REMOTE_PARENT);
     }
 
     #[DataSet([['traceparent' => self::TRACEPARENT]], 'lowercase header')]
@@ -84,11 +83,11 @@ final class RemoteParentTest extends TestCase
         Assert::count($spans, 2, "Received:\n{$spans}");
         Assert::same($outer->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::same($outer->kind, ReceivedSpan::KIND_SERVER);
-        Assert::same($this->flags($outer), self::FLAGS_REMOTE_PARENT);
+        Assert::same($outer->flags, self::FLAGS_REMOTE_PARENT);
         Assert::same($inner->traceId, self::TRACE_ID);
         Assert::same($inner->parentSpanId, $outer->spanId);
         Assert::same($inner->kind, ReceivedSpan::KIND_INTERNAL);
-        Assert::same($this->flags($inner), self::FLAGS_LOCAL_PARENT);
+        Assert::same($inner->flags, self::FLAGS_LOCAL_PARENT);
     }
 
     #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
@@ -108,7 +107,7 @@ final class RemoteParentTest extends TestCase
             $span = $spans->named("level-{$level}");
             Assert::same($span->traceId, self::TRACE_ID);
             Assert::same($span->parentSpanId, $spans->named('level-' . ($level - 1))->spanId, "level-{$level}");
-            Assert::same($this->flags($span), self::FLAGS_LOCAL_PARENT, "level-{$level}");
+            Assert::same($span->flags, self::FLAGS_LOCAL_PARENT, "level-{$level}");
         }
     }
 
@@ -168,7 +167,7 @@ final class RemoteParentTest extends TestCase
         Assert::same($spans->named('outer')->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::same($spans->named('inner')->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::same($spans->named('inner')->traceId, self::TRACE_ID);
-        Assert::same($this->flags($spans->named('inner')), self::FLAGS_REMOTE_PARENT);
+        Assert::same($spans->named('inner')->flags, self::FLAGS_REMOTE_PARENT);
     }
 
     #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
@@ -226,7 +225,7 @@ final class RemoteParentTest extends TestCase
         Assert::same($second->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::same($second->traceId, self::TRACE_ID);
         Assert::notSame($second->spanId, $first->spanId);
-        Assert::same($this->flags($second), self::FLAGS_REMOTE_PARENT);
+        Assert::same($second->flags, self::FLAGS_REMOTE_PARENT);
     }
 
     /**
@@ -283,7 +282,7 @@ final class RemoteParentTest extends TestCase
         $later = $this->traces()->await(3)->named('later');
         Assert::true($later->isRoot());
         Assert::notSame($later->traceId, self::TRACE_ID);
-        Assert::same($this->flags($later), self::FLAGS_LOCAL_PARENT);
+        Assert::same($later->flags, self::FLAGS_LOCAL_PARENT);
     }
 
     /**
@@ -306,7 +305,7 @@ final class RemoteParentTest extends TestCase
         $spans = $this->traces()->await(3);
         Assert::count($spans, 3, "Received:\n{$spans}");
         foreach (['outer', 'inner', 'leaf'] as $name) {
-            Assert::same($this->traceState($spans->named($name)), self::TRACESTATE, $name);
+            Assert::same($spans->named($name)->traceState, self::TRACESTATE, $name);
         }
     }
 
@@ -325,8 +324,8 @@ final class RemoteParentTest extends TestCase
         $spans = $this->traces()->await(2);
         Assert::true($spans->named('outer')->isRoot());
         Assert::same($spans->named('inner')->parentSpanId, $spans->named('outer')->spanId);
-        Assert::same($this->traceState($spans->named('outer')), '');
-        Assert::same($this->traceState($spans->named('inner')), '');
+        Assert::same($spans->named('outer')->traceState, '');
+        Assert::same($spans->named('inner')->traceState, '');
     }
 
     /**
@@ -373,9 +372,9 @@ final class RemoteParentTest extends TestCase
 
         $spans = $this->traces()->await(3);
         Assert::count($spans, 3, "Received:\n{$spans}");
-        Assert::same($this->flags($spans->named('outer')), self::FLAGS_REMOTE_PARENT);
-        Assert::same($this->flags($spans->named('inner')), self::FLAGS_LOCAL_PARENT);
-        Assert::same($this->flags($spans->named('leaf')), self::FLAGS_LOCAL_PARENT);
+        Assert::same($spans->named('outer')->flags, self::FLAGS_REMOTE_PARENT);
+        Assert::same($spans->named('inner')->flags, self::FLAGS_LOCAL_PARENT);
+        Assert::same($spans->named('leaf')->flags, self::FLAGS_LOCAL_PARENT);
     }
 
     /**
@@ -412,8 +411,8 @@ final class RemoteParentTest extends TestCase
         Assert::count($spans, 3, "Received:\n{$spans}");
         Assert::true($outer->isRoot());
         Assert::notSame(\strtolower($outer->traceId), self::TRACE_ID);
-        Assert::same($this->flags($outer), self::FLAGS_LOCAL_PARENT);
-        Assert::same($this->traceState($outer), '');
+        Assert::same($outer->flags, self::FLAGS_LOCAL_PARENT);
+        Assert::same($outer->traceState, '');
         Assert::same($inner->parentSpanId, $outer->spanId);
         Assert::same($leaf->parentSpanId, $inner->spanId);
         Assert::same($leaf->traceId, $outer->traceId);
@@ -539,7 +538,7 @@ final class RemoteParentTest extends TestCase
         Assert::same($job->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::same($spans->named('send')->parentSpanId, $job->spanId);
         Assert::same($spans->named('render')->parentSpanId, $spans->named('send')->spanId);
-        Assert::same($this->traceState($spans->named('render')), self::TRACESTATE);
+        Assert::same($spans->named('render')->traceState, self::TRACESTATE);
         $this->assertSameTrace($spans, self::TRACE_ID);
     }
 
@@ -589,45 +588,5 @@ final class RemoteParentTest extends TestCase
         foreach ($spans as $span) {
             Assert::same($span->traceId, $traceId, "Span {$span->name} left the trace:\n{$spans}");
         }
-    }
-
-    private function flags(ReceivedSpan $span): int
-    {
-        return (int) ($this->rawSpan($span)['flags'] ?? 0);
-    }
-
-    private function traceState(ReceivedSpan $span): string
-    {
-        return (string) ($this->rawSpan($span)['traceState'] ?? '');
-    }
-
-    /**
-     * The span as Trap dumped it, for the OTLP fields {@see ReceivedSpan} does not carry (`flags`, `traceState`).
-     *
-     * @return array<string, mixed>
-     */
-    private function rawSpan(ReceivedSpan $span): array
-    {
-        $directory = (fn(): string => $this->directory)->call($this->traces());
-        foreach (\glob($directory . \DIRECTORY_SEPARATOR . 'dump-*.log') ?: [] as $file) {
-            foreach (\explode("\n", (string) \file_get_contents($file)) as $line) {
-                if (!\str_contains($line, $span->spanId)) {
-                    continue;
-                }
-
-                $frame = \json_decode($line, true, flags: \JSON_THROW_ON_ERROR);
-                foreach ($frame['resourceSpans'] ?? [] as $resourceSpans) {
-                    foreach ($resourceSpans['scopeSpans'] ?? [] as $scopeSpans) {
-                        foreach ($scopeSpans['spans'] ?? [] as $raw) {
-                            if ($raw['spanId'] === $span->spanId && $raw['traceId'] === $span->traceId) {
-                                return $raw;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Assert::fail("Span {$span} is not in the Trap dumps.");
     }
 }
