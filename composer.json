@@ -61,7 +61,6 @@
     "autoload-dev": {
         "psr-4": {
             "Spiral\\OpenTelemetry\\Tests\\Acceptance\\": "tests/Acceptance",
-            "Spiral\\OpenTelemetry\\Tests\\App\\": "tests/app",
             "Spiral\\OpenTelemetry\\Tests\\Feature\\": "tests/Feature",
             "Spiral\\OpenTelemetry\\Tests\\Unit\\": "tests/Unit"
         }
