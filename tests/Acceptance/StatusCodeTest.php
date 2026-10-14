@@ -224,6 +224,9 @@ final class StatusCodeTest extends TestCase
     /**
      * Codes the HTTP conventions leave open (4xx outside SERVER/CLIENT, codes out of the HTTP range,
      * the OTLP enum value 2): Error or Unset are both defensible, `Ok` is not.
+     *
+     * @todo Question: out-of-range codes on CLIENT spans (-1, 600, 1000): semconv says Error, #19 proposes Unset;
+     *       4xx on INTERNAL/PRODUCER/CONSUMER and 1/2 as OTLP enum values are not covered by the spec either.
      */
     #[DataSet([404, null], '404 internal')]
     #[DataSet([404, TraceKind::PRODUCER], '404 producer')]

@@ -244,6 +244,10 @@ final class ContextPropagationTest extends TestCase
         self::assertContinues($spans, 'after root', 'root');
     }
 
+    /**
+     * @todo Question: after every trace has ended, getContext() keeps returning the last finished root (#17 proposal,
+     *       Http::handle() relies on it). No spec defines it; confirm before fixing #17.
+     */
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
     public function contextAfterSequentialRootTracesPointsToTheLastOne(bool $scoped): void

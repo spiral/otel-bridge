@@ -215,6 +215,10 @@ final class AttributesTest extends TestCase
         $this->assertPreserved($value, $this->received());
     }
 
+    /**
+     * @todo Question: which shape should mixed lists and associative arrays take? The spec allows AnyValue
+     *       (heterogeneous arrays, maps); #20 proposes string[] and JSON. The test accepts any lossless shape.
+     */
     #[DataProvider('droppedValues')]
     #[Skip('Known issue: mixed, null-containing and enum/date values are dropped or reduced to a class name, see https://github.com/spiral/otel-bridge/issues/20')]
     public function droppedValueArrivesWithoutDataLoss(mixed $value): void

@@ -222,6 +222,9 @@ final class ExceptionTest extends TestCase
 
     /**
      * Ok is final: https://opentelemetry.io/docs/specs/otel/trace/api/#set-status
+     *
+     * @todo Question: Ok set inside the callback stays Ok after a throw (the spec makes Ok final);
+     *       #18 only mentions keeping a user-set Error. Confirm Ok should win over the exception.
      */
     #[Skip('Known issue: a throwing callback drops the status set inside it, see https://github.com/spiral/otel-bridge/issues/18')]
     public function okStatusSetByCallbackIsFinalEvenWhenItThrows(): void

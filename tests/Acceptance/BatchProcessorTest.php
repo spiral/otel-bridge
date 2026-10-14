@@ -250,6 +250,9 @@ final class BatchProcessorTest extends TestCase
 
     /**
      * The provider is meant to be one per app: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/api.md#tracerprovider
+     *
+     * @todo Question: must the span exporter be a singleton too? #10 proposes it, the spec only needs one
+     *       exporter per processor. Drop the "span exporter" data set if not.
      */
     #[DataSet([TracerProviderInterface::class], 'tracer provider')]
     #[DataSet([OtelTracerInterface::class], 'OTel tracer')]

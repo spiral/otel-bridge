@@ -47,6 +47,10 @@ final class RemoteParentTest extends TestCase
         return [...parent::defineBootloaders(), RemoteParentHttpBootloader::class];
     }
 
+    /**
+     * @todo Question: when a local span is already active and the tracer was made with an incoming traceparent,
+     *       which one parents the new span? The spec leaves it open (#16 proposes the local span); no test yet.
+     */
     #[DataSet([['traceparent' => self::TRACEPARENT]], 'lowercase header')]
     #[DataSet([['Traceparent' => self::TRACEPARENT]], 'capitalized header')]
     #[DataSet([['TRACEPARENT' => self::TRACEPARENT]], 'uppercase header')]
