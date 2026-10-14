@@ -88,8 +88,7 @@ final class TracerTest extends TestCase
         $root = $spans->named('root');
         $child = $spans->named('child');
         $grandchild = $spans->named('grandchild');
-        Assert::count($spans, 3, "Received:
-{$spans}");
+        Assert::count($spans, 3, "Received:\n{$spans}");
         Assert::true($root->isRoot());
         Assert::same($child->parentSpanId, $root->spanId);
         Assert::same($grandchild->parentSpanId, $child->spanId);

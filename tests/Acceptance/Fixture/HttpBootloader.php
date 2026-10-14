@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests\Acceptance\App;
+namespace Spiral\OpenTelemetry\Tests\Acceptance\Fixture;
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Container\ContainerInterface;
