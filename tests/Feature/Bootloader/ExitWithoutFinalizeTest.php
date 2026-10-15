@@ -42,18 +42,24 @@ final class ExitWithoutFinalizeTest
      */
     private static function run(string $mode): array
     {
-        $process = \proc_open(
-            [\PHP_BINARY, __DIR__ . '/../../Process/exit-without-finalize.php', $mode],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-        );
-        \assert(\is_resource($process));
-        $stdout = (string) \stream_get_contents($pipes[1]);
-        $stderr = (string) \stream_get_contents($pipes[2]);
-        \fclose($pipes[1]);
-        \fclose($pipes[2]);
-        $code = \proc_close($process);
+        # Files, not pipes: a child that fills the pipe nobody reads yet would block forever.
+        $out = (string) \tempnam(\sys_get_temp_dir(), 'otel');
+        $err = (string) \tempnam(\sys_get_temp_dir(), 'otel');
 
-        return [\preg_split('/\R/', \trim($stdout)), $stderr, $code];
+        try {
+            $process = \proc_open(
+                [\PHP_BINARY, __DIR__ . '/../../Process/exit-without-finalize.php', $mode],
+                [0 => ['pipe', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']],
+                $pipes,
+            );
+            \assert(\is_resource($process));
+            \fclose($pipes[0]);
+            $code = \proc_close($process);
+
+            return [\preg_split('/\R/', \trim((string) \file_get_contents($out))), (string) \file_get_contents($err), $code];
+        } finally {
+            @\unlink($out);
+            @\unlink($err);
+        }
     }
 }

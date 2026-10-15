@@ -20,6 +20,9 @@ use Spiral\Core\Container;
 use Spiral\Exceptions\ExceptionReporterInterface;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
 
+# The lowest dependencies are not free of deprecations on newer PHP; they are not what is checked here.
+\error_reporting(\E_ALL & ~\E_DEPRECATED);
+
 require __DIR__ . '/../../vendor/autoload.php';
 
 $throw = ($argv[1] ?? 'ok') === 'throw';
