@@ -19,7 +19,10 @@ use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeSize;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeStatus;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeText;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\JsonValue;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\SelfJson;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\StringableJson;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\ThrowingJson;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\ThrowingString;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
@@ -105,22 +108,73 @@ final class TracerExportTest
 
     public static function structuredValues(): iterable
     {
-        $recursive = [1];
-        $recursive[] = &$recursive;
-
         yield 'invalid UTF-8' => [['a', ["\xFF"]], '["a",["�"]]'];
         yield 'non-finite floats' => [['a', [\NAN, \INF, -\INF, 1.5]], '["a",["NaN","Infinity","-Infinity",1.5]]'];
         yield 'map with null' => [new JsonValue(['k' => ["\xFF"], 'n' => null]), '{"k":["�"],"n":null}'];
         yield 'nested JsonSerializable' => [new JsonValue([new JsonValue(\NAN)]), '["NaN"]'];
         yield 'unicode and slashes' => [['a', ['Привет', 'a/b']], '["a",["Привет","a/b"]]'];
-        yield 'deepest allowed nesting' => [['a', self::nest(62)], '["a",' . \str_repeat('[', 63) . \str_repeat(']', 63) . ']'];
-        yield 'too deep' => [['a', self::nest(63)], 'array'];
-        yield 'recursive array' => [['a', $recursive], 'array'];
         yield 'resource inside' => [['a', [\fopen('php://memory', 'rb')]], '["a",["resource (stream)"]]'];
-        yield 'throwing jsonSerialize()' => [new ThrowingJson(), ThrowingJson::class];
+    }
+
+    /**
+     * The attribute value is depth 1, each array or map one level more; past 64 an array or map becomes
+     * `null` and nothing else changes.
+     * https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/common/README.md#attribute-limits
+     */
+    public static function deepValues(): iterable
+    {
+        $recursive = [1];
+        $recursive[] = &$recursive;
+
+        yield 'deepest allowed nesting' => [['a', self::nest(62)], '["a",' . \str_repeat('[', 63) . \str_repeat(']', 63) . ']'];
+        yield 'too deep' => [['a', self::nest(63)], '["a",' . \str_repeat('[', 63) . 'null' . \str_repeat(']', 63) . ']'];
+        yield 'recursive array' => [['a', $recursive], '["a",' . \str_repeat('[1,', 63) . 'null' . \str_repeat(']', 63) . ']'];
+        yield 'JsonSerializable is not a level' => [new JsonValue(self::nest(63)), \str_repeat('[', 64) . \str_repeat(']', 64)];
+        yield 'too deep in JsonSerializable' => [new JsonValue(self::nest(64)), \str_repeat('[', 64) . 'null' . \str_repeat(']', 64)];
+        yield 'JsonSerializable serializing to itself' => [['a', new SelfJson()], '["a",null]'];
+    }
+
+    public static function serializedValues(): iterable
+    {
+        yield 'list item' => [['a', new JsonValue(['x' => 1])], '["a",{"x":1}]'];
+        yield 'with int' => [[1, new JsonValue(['x' => 1])], '[1,{"x":1}]'];
+        yield 'only item' => [[new JsonValue(['x' => 1])], '[{"x":1}]'];
+        yield 'primitive in list' => [[new JsonValue('x')], '["x"]'];
+        yield 'primitive string' => [new JsonValue('x'), 'x'];
+        yield 'primitive int' => [new JsonValue(42), 42];
+        yield 'unit enum' => [new JsonValue(AttributeSize::Small), 'Small'];
+        yield 'objects inside' => [
+            new JsonValue([
+                's' => AttributeSize::Small,
+                'p' => AttributeStatus::Paid,
+                'd' => new \DateTimeImmutable('2024-02-29T13:14:15+03:00'),
+                't' => new AttributeText('t'),
+                'o' => new \stdClass(),
+            ]),
+            '{"s":"Small","p":"paid","d":"2024-02-29T13:14:15+03:00","t":"t","o":"stdClass"}',
+        ];
+        yield 'Stringable and JsonSerializable' => [new StringableJson(), 'text'];
+        yield 'Stringable and JsonSerializable in list' => [['a', new StringableJson()], ['a', 'text']];
+        yield 'Stringable and JsonSerializable in mixed list' => [[1, new StringableJson()], '[1,"text"]'];
+        yield 'Stringable and JsonSerializable inside' => [new JsonValue([new StringableJson()]), '["text"]'];
+    }
+
+    /**
+     * __toString() and jsonSerialize() run after the callback has succeeded, so when they throw the value
+     * becomes its type and trace() still returns.
+     */
+    public static function throwingValues(): iterable
+    {
+        yield '__toString()' => [new ThrowingString(), ThrowingString::class];
+        yield '__toString() in list' => [['a', new ThrowingString()], ['a', ThrowingString::class]];
+        yield '__toString() in map' => [['k' => new ThrowingString()], \json_encode(['k' => ThrowingString::class])];
+        yield 'jsonSerialize()' => [new ThrowingJson(), ThrowingJson::class];
+        yield 'jsonSerialize() in list' => [['a', new ThrowingJson()], \json_encode(['a', ThrowingJson::class])];
+        yield 'jsonSerialize() inside' => [new JsonValue([new ThrowingJson()]), \json_encode([ThrowingJson::class])];
     }
 
     #[DataProvider('structuredValues')]
+    #[DataProvider('deepValues')]
     public function structuredAttributeIsEncodedAsJson(mixed $value, string $expected): void
     {
         $span = $this->traceOne(static fn(SpanInterface $span) => $span->setAttribute('value', $value));
@@ -130,13 +184,37 @@ final class TracerExportTest
         Assert::count($span->getEvents(), 0);
     }
 
+    /**
+     * A JsonSerializable stands for what it serializes to, unless it is Stringable; as a list item it makes
+     * the list structured, so the list is sent as JSON.
+     */
+    #[DataProvider('serializedValues')]
+    public function jsonSerializableIsExportedAsWhatItSerializesTo(mixed $value, mixed $expected): void
+    {
+        $this->assertExported($value, $expected);
+    }
+
+    #[DataProvider('throwingValues')]
+    public function throwingConversionLeavesTypeInPlaceOfValue(mixed $value, mixed $expected): void
+    {
+        $tracer = $this->createTracer();
+
+        $result = $tracer->trace('test', static function (SpanInterface $span) use ($value): string {
+            $span->setAttribute('value', $value);
+            return 'done';
+        });
+
+        Assert::same($result, 'done');
+        Assert::same($this->exporter->getSpans()[0]->getAttributes()->toArray(), ['value' => $expected]);
+    }
+
     #[DataSet([[], []], 'empty')]
     #[DataSet([['X'], ['X']], 'one string')]
     #[DataSet([[42], [42]], 'one int')]
     #[DataSet([[''], ['']], 'one empty string')]
     #[DataSet([['a', 'b'], ['a', 'b']], 'strings')]
     #[DataSet([[true, false], [true, false]], 'bools')]
-    #[DataSet([[1, 2.5], [1, 2.5]], 'ints and floats')]
+    #[DataSet([[1, 2.5], [1.0, 2.5]], 'ints and floats')]
     #[DataSet([['0' => 'X'], ['X']], 'numeric-string key')]
     #[DataSet([[new AttributeText('a'), 'b'], ['a', 'b']], 'Stringable and string')]
     #[DataSet([[AttributeStatus::Paid, AttributeStatus::Refunded], ['paid', 'refunded']], 'string enums')]
@@ -151,7 +229,8 @@ final class TracerExportTest
      */
     #[DataSet([['a', null], ['a', '']], 'string and null')]
     #[DataSet([[null, 'a'], ['', 'a']], 'null and string')]
-    #[DataSet([[1, null, 2.5], [1, 0, 2.5]], 'numbers and null')]
+    #[DataSet([[1, null, 2.5], [1.0, 0.0, 2.5]], 'numbers and null')]
+    #[DataSet([[1, null], [1, 0]], 'ints and null')]
     #[DataSet([[true, null], [true, false]], 'bool and null')]
     #[DataSet([[null], ['']], 'only null')]
     #[DataSet([[null, null], ['', '']], 'nulls')]

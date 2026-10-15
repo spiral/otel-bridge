@@ -108,6 +108,9 @@ final class AttributesTest extends TestCase
         yield 'null and string' => [[null, 'a'], ['', 'a']];
         yield 'int and null' => [[1, null], [1, 0]];
         yield 'bool and null' => [[true, null], [true, false]];
+        yield 'ints and floats' => [[1, 2.5], [1.0, 2.5]];
+        yield 'numbers and null' => [[1, null, 2.5], [1.0, 0.0, 2.5]];
+        yield 'JsonSerializable in list' => [['a', new AttributesJson(['x' => 1])], '["a",{"x":1}]'];
         yield 'only null' => [[null], ['']];
         yield 'nulls' => [[null, null], ['', '']];
         yield 'all types' => [['a', 1, true, 1.5, null], '["a",1,true,1.5,null]'];
@@ -214,10 +217,11 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * A list the SDK does not accept (mixed types, nested arrays) and a map arrive as JSON, by the spec's
-     * string representation of AnyValue. A `null` item of a list of one type becomes the empty value of
-     * that type, as the spec allows where `null` cannot be exported. A backed enum arrives as its value,
-     * a pure enum as its name, a date as RFC 3339.
+     * A list that is not a homogeneous array (mixed types, nested arrays or JsonSerializable items) and a
+     * map arrive as JSON, by the spec's string representation of AnyValue. A `null` item of a list of one
+     * type becomes the empty value of that type, as the spec allows where `null` cannot be exported; ints
+     * in a list with floats become floats. A backed enum arrives as its value, a pure enum as its name,
+     * a date as RFC 3339.
      * https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/common/README.md#anyvalue-representation-for-non-otlp-protocols
      */
     #[DataProvider('convertedValues')]
@@ -404,18 +408,16 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * `spiral/http` sends the request headers as a `[name => value]` array.
+     * `spiral/http` sends the request headers as a `[name => value]` array, which arrives as a JSON object.
      */
-    public function requestHeadersArriveWithoutDataLoss(): void
+    public function requestHeadersArriveAsJsonObject(): void
     {
         $this->fakeHttp()->get('/ping', headers: ['x-one' => 'a', 'x-many' => ['b', 'c']])->assertOk();
 
         $span = $this->traces()->await(1)->named('GET /ping');
         $headers = $span->attributes['http.headers'] ?? null;
-        $headers = \is_string($headers) ? \json_decode($headers, true) : $headers;
-        Assert::true(\is_array($headers), 'Received ' . self::export($span->attributes['http.headers'] ?? null));
-        Assert::same($headers['x-one'] ?? null, 'a');
-        Assert::same($headers['x-many'] ?? null, 'b,c');
+        Assert::string($headers);
+        Assert::same(\json_decode($headers, true), ['x-one' => 'a', 'x-many' => 'b,c']);
     }
 
     /**
