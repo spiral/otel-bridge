@@ -68,3 +68,7 @@ OTEL_PHP_TRACES_PROCESSOR=simple
 ```
 
 The exporter is created lazily, on the first export. The full list of variables is in the [OpenTelemetry SDK configuration](https://opentelemetry.io/docs/languages/sdk-configuration/).
+
+With `OTEL_PHP_TRACES_PROCESSOR=batch` (the SDK default) spans are queued and flushed after every request or job,
+and on application shutdown, through the Spiral finalizer. Spans still queued are lost when the worker is killed hard,
+e.g. by `SIGKILL` or the RoadRunner stop timeout.

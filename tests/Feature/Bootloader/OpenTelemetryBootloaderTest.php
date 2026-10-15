@@ -16,6 +16,8 @@ use OpenTelemetry\SDK\Trace\SpanProcessor\NoopSpanProcessor;
 use OpenTelemetry\SDK\Trace\Tracer;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
+use Spiral\Boot\Finalizer;
+use Spiral\Exceptions\ExceptionReporterInterface;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
@@ -53,12 +55,15 @@ final class OpenTelemetryBootloaderTest extends TestCase
     public function disabledSdkGetsNoopProcessorAndProvider(): void
     {
         $bootloader = new OpenTelemetryBootloader();
+        $finalizer = new Finalizer();
 
-        [$processor, $provider] = self::withProcessEnv(['OTEL_SDK_DISABLED' => 'true'], static function () use ($bootloader): array {
+        [$processor, $provider] = self::withProcessEnv(['OTEL_SDK_DISABLED' => 'true'], static function () use ($bootloader, $finalizer): array {
             $processor = $bootloader->initSpanProcessor($bootloader->initSpanExporter());
 
-            return [$processor, $bootloader->initTraceProvider($processor)];
+            return [$processor, $bootloader->initTraceProvider($processor, $finalizer, self::reporter())];
         });
+        $finalizer->finalize(false);
+        $finalizer->finalize(true);
 
         Assert::instanceOf($processor, NoopSpanProcessor::class);
         Assert::instanceOf($provider, NoopTracerProvider::class);
@@ -112,10 +117,18 @@ final class OpenTelemetryBootloaderTest extends TestCase
     private static function startSpan(OpenTelemetryBootloader $bootloader): SpanInterface
     {
         return $bootloader
-            ->initTraceProvider(NoopSpanProcessor::getInstance())
+            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), self::reporter())
             ->getTracer('test')
             ->spanBuilder('root')
             ->startSpan();
+    }
+
+    private static function reporter(): ExceptionReporterInterface
+    {
+        return new class implements ExceptionReporterInterface {
+            #[\Override]
+            public function report(\Throwable $exception): void {}
+        };
     }
 
     /**
