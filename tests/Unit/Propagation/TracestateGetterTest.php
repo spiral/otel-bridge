@@ -33,13 +33,6 @@ final class TracestateGetterTest
         Assert::same((new TracestateGetter())->get($carrier, 'traceparent'), 'first');
     }
 
-    public function getAllKeepsFieldsApart(): void
-    {
-        $carrier = ['tracestate' => ['a=1', 'b=2']];
-
-        Assert::same((new TracestateGetter())->getAll($carrier, 'tracestate'), ['a=1', 'b=2']);
-    }
-
     public function keysAreDelegated(): void
     {
         $carrier = ['traceparent' => 'parent', 'tracestate' => ['a=1']];

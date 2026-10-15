@@ -5,24 +5,24 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry\Propagation;
 
 use OpenTelemetry\Context\Propagation\ArrayAccessGetterSetter;
-use OpenTelemetry\Context\Propagation\ExtendedPropagationGetterInterface;
+use OpenTelemetry\Context\Propagation\PropagationGetterInterface;
 
 /**
- * Hands several `tracestate` header fields to a propagator as one comma-separated list, in field order,
- * as W3C Trace Context requires. `TraceContextPropagator` reads `tracestate` with {@see get()},
- * which on a list of fields would see only the first one.
- *
- * Every other key, `traceparent` included, is read as the wrapped getter reads it.
+ * W3C Trace Context requires several `tracestate` header fields to be combined into one list, in field order.
+ * `TraceContextPropagator` calls `get()`, not `getAll()`, so `get()` here returns the fields joined.
  *
  * @internal
  */
-final class TracestateGetter implements ExtendedPropagationGetterInterface
+final class TracestateGetter implements PropagationGetterInterface
 {
     private const TRACESTATE = 'tracestate';
 
-    public function __construct(
-        private readonly ExtendedPropagationGetterInterface $getter = new ArrayAccessGetterSetter(),
-    ) {}
+    private readonly PropagationGetterInterface $getter;
+
+    public function __construct(?PropagationGetterInterface $getter = null)
+    {
+        $this->getter = $getter ?? ArrayAccessGetterSetter::getInstance();
+    }
 
     #[\Override]
     public function keys(mixed $carrier): array
@@ -37,14 +37,23 @@ final class TracestateGetter implements ExtendedPropagationGetterInterface
             return $this->getter->get($carrier, $key);
         }
 
-        $fields = $this->getter->getAll($carrier, $key);
+        # Not getAll(): open-telemetry/context 1.0, still allowed by the constraints, has no multi-value getter.
+        $fields = [];
+        foreach ($this->getter->keys($carrier) as $name) {
+            if (\strcasecmp($name, self::TRACESTATE) !== 0) {
+                continue;
+            }
+
+            \assert(\is_array($carrier) || $carrier instanceof \ArrayAccess);
+            /** @var mixed $field */
+            foreach ((array) $carrier[$name] as $field) {
+                if (\is_string($field)) {
+                    $fields[] = $field;
+                }
+            }
+            break;
+        }
 
         return $fields === [] ? null : \implode(',', $fields);
-    }
-
-    #[\Override]
-    public function getAll(mixed $carrier, string $key): array
-    {
-        return $this->getter->getAll($carrier, $key);
     }
 }

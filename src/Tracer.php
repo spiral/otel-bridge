@@ -20,6 +20,7 @@ use Spiral\Telemetry\TraceKind;
 final class Tracer extends AbstractTracer
 {
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
+    private readonly TracestateGetter $getter;
 
     public function __construct(
         #[Proxy] ScopeInterface $scope,
@@ -28,6 +29,7 @@ final class Tracer extends AbstractTracer
         private array $context = [],
     ) {
         parent::__construct($scope);
+        $this->getter = new TracestateGetter();
     }
 
     /**
@@ -181,7 +183,7 @@ final class Tracer extends AbstractTracer
 
         if ($this->context !== []) {
             $spanBuilder->setParent(
-                $this->propagator->extract($this->context, new TracestateGetter()),
+                $this->propagator->extract($this->context, $this->getter),
             );
         }
 
