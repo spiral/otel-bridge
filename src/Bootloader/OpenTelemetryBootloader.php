@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Bootloader;
 
+use OpenTelemetry\API\Behavior\LogsMessagesTrait;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
+use OpenTelemetry\SDK\Sdk;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
+use OpenTelemetry\SDK\Trace\NoopTracerProvider;
+use OpenTelemetry\SDK\Trace\SamplerFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
+use OpenTelemetry\SDK\Trace\SpanProcessor\NoopSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorFactory;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
@@ -23,6 +28,8 @@ use Spiral\Telemetry\ClockInterface;
 
 final class OpenTelemetryBootloader extends Bootloader
 {
+    use LogsMessagesTrait;
+
     protected const BINDINGS = [
         TracerInterface::class => [self::class, 'initTracer'],
         TracerProviderInterface::class => [self::class, 'initTraceProvider'],
@@ -56,6 +63,10 @@ final class OpenTelemetryBootloader extends Bootloader
     public function initSpanProcessor(
         SpanExporterInterface $exporter,
     ): SpanProcessorInterface {
+        if (Sdk::isDisabled()) {
+            return NoopSpanProcessor::getInstance();
+        }
+
         return (new SpanProcessorFactory())->create($exporter);
     }
 
@@ -69,6 +80,17 @@ final class OpenTelemetryBootloader extends Bootloader
     public function initTraceProvider(
         SpanProcessorInterface $spanProcessor,
     ): TracerProviderInterface {
-        return new TracerProvider($spanProcessor);
+        if (Sdk::isDisabled()) {
+            return new NoopTracerProvider();
+        }
+
+        try {
+            $sampler = (new SamplerFactory())->create();
+        } catch (\Throwable $e) {
+            self::logWarning('Unable to create sampler', ['exception' => $e]);
+            $sampler = null;
+        }
+
+        return new TracerProvider($spanProcessor, $sampler);
     }
 }
