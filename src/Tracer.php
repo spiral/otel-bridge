@@ -11,6 +11,7 @@ use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Attribute\Proxy;
 use Spiral\Core\ScopeInterface;
+use Spiral\OpenTelemetry\Propagation\TracestateGetter;
 use Spiral\Telemetry\AbstractTracer;
 use Spiral\Telemetry\Span;
 use Spiral\Telemetry\SpanInterface;
@@ -19,6 +20,7 @@ use Spiral\Telemetry\TraceKind;
 final class Tracer extends AbstractTracer
 {
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
+    private readonly TracestateGetter $getter;
 
     public function __construct(
         #[Proxy] ScopeInterface $scope,
@@ -27,6 +29,7 @@ final class Tracer extends AbstractTracer
         private array $context = [],
     ) {
         parent::__construct($scope);
+        $this->getter = new TracestateGetter();
     }
 
     /**
@@ -180,7 +183,7 @@ final class Tracer extends AbstractTracer
 
         if ($this->context !== []) {
             $spanBuilder->setParent(
-                $this->propagator->extract($this->context),
+                $this->propagator->extract($this->context, $this->getter),
             );
         }
 

@@ -6,7 +6,6 @@ namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
 use Testo\Assert;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -25,7 +24,6 @@ final class TracestateTest extends TestCase
 
     #[DataSet([['congo=t61rcWkgMzE', 'rojo=00f067aa0ba902b7'], 'congo=t61rcWkgMzE,rojo=00f067aa0ba902b7'], 'two fields')]
     #[DataSet([['a=1', 'b=2,c=3', 'd=4'], 'a=1,b=2,c=3,d=4'], 'three fields, one with two members')]
-    #[Skip('Known issue: only the first of several tracestate header fields is used, see https://github.com/spiral/otel-bridge/issues/26')]
     public function severalTracestateFieldsAreCombined(array $tracestate, string $expected): void
     {
         $this->assertTracestateCarried(['traceparent' => [self::TRACEPARENT], 'tracestate' => $tracestate], $expected);

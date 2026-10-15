@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Feature;
 
+use OpenTelemetry\API\Behavior\Internal\Logging;
+use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
@@ -155,6 +157,56 @@ final class TracerExportTest
         $tracer->trace('test', static fn() => null);
 
         Assert::same($tracer->getContext()['tracestate'] ?? null, 'vendor=value');
+    }
+
+    public function severalTraceStateFieldsAreCombined(): void
+    {
+        $tracer = $this->createTracer([
+            'traceparent' => [self::TRACEPARENT],
+            'tracestate' => ['a=1', 'b=2'],
+        ]);
+
+        $tracer->trace('test', static fn() => null);
+
+        Assert::same((string) $this->exporter->getSpans()[0]->getContext()->getTraceState(), 'a=1,b=2');
+        Assert::same($tracer->getContext()['tracestate'] ?? null, 'a=1,b=2');
+    }
+
+    /**
+     * W3C Trace Context: a tracestate with an invalid list-member or more than 32 members is discarded whole,
+     * also when the offending member comes from a later header field.
+     */
+    #[DataSet([['a=1', 'b']], 'invalid member in a later field')]
+    #[DataSet([['m0=0,m1=1,m2=2,m3=3,m4=4,m5=5,m6=6,m7=7,m8=8,m9=9,m10=10,m11=11,m12=12,m13=13,m14=14,m15=15', 'm16=16,m17=17,m18=18,m19=19,m20=20,m21=21,m22=22,m23=23,m24=24,m25=25,m26=26,m27=27,m28=28,m29=29,m30=30,m31=31', 'm32=32']], '33 members over three fields')]
+    public function invalidCombinedTraceStateIsDiscarded(array $tracestate): void
+    {
+        $tracer = $this->createTracer([
+            'traceparent' => [self::TRACEPARENT],
+            'tracestate' => $tracestate,
+        ]);
+
+        # The SDK warns about the discarded tracestate; keep it off stderr, where Infection stops the run.
+        $log = new class implements LogWriterInterface {
+            /** @var list<string> */
+            public array $levels = [];
+
+            #[\Override]
+            public function write($level, string $message, array $context): void
+            {
+                $this->levels[] = (string) $level;
+            }
+        };
+        Logging::setLogWriter($log);
+
+        try {
+            $tracer->trace('test', static fn() => null);
+        } finally {
+            Logging::reset();
+        }
+
+        Assert::same((string) $this->exporter->getSpans()[0]->getContext()->getTraceState(), '');
+        Assert::false(isset($tracer->getContext()['tracestate']));
+        Assert::same($log->levels, ['warning']);
     }
 
     public function propagatedContextBecomesParent(): void
