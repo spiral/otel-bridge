@@ -44,5 +44,9 @@ jobs:
         with:
           dependency-versions: ${{ matrix.dependencies }}
 
+      # StructArmed is isolated in tools/structarmed via bamarni/composer-bin-plugin.
+      - name: 📥 Install StructArmed
+        run: composer bin structarmed install --no-interaction --no-progress
+
       - name: 🛡️ Run StructArmed
         run: composer structarmed

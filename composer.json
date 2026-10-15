@@ -40,20 +40,19 @@
         "open-telemetry/sem-conv": "<1.22"
     },
     "require-dev": {
-        "boundwize/structarmed": "^0.19",
+        "bamarni/composer-bin-plugin": "^1.8",
         "buggregator/trap": "^1.17",
         "jasonmccreary/double": "^1.0.1",
         "llm/skills": "^1.14",
         "nyholm/psr7": "^1.8",
         "open-telemetry/exporter-otlp": "^1.4",
         "roxblnfk/unpoly": "^1.8",
-        "spiral/code-style": "^2.4",
         "spiral/dumper": "^3.3",
         "spiral/testing": "4.x-dev as 4.0.0",
         "symfony/http-client": "^6.4 || ^7.0 || ^8.0",
         "testo/bridge-double": "^0.1.1",
-        "testo/testo": "^0.10.54",
-        "vimeo/psalm": "^6 || ^7"
+        "testo/bridge-infection": "^0.1.9",
+        "testo/testo": "^0.10.54"
     },
     "autoload": {
         "psr-4": {
@@ -68,20 +67,29 @@
         }
     },
     "scripts": {
-        "cs:diff": "php-cs-fixer fix --dry-run -v --diff",
-        "cs:fix": "php-cs-fixer fix -v",
-        "psalm": "psalm",
-        "psalm:baseline": "psalm --set-baseline=psalm-baseline.xml",
-        "psalm:ci": "psalm --output-format=github --shepherd --show-info=false --stats --threads=4",
+        "cs:diff": "php-cs-fixer fix --dry-run -v --diff --config=tools/code-style/.php-cs-fixer.dist.php",
+        "cs:fix": "php-cs-fixer fix -v --config=tools/code-style/.php-cs-fixer.dist.php",
+        "infect": [
+            "@putenv XDEBUG_MODE=coverage",
+            "infection --threads=max --min-msi=90 --min-covered-msi=90"
+        ],
+        "infect:ci": [
+            "@putenv XDEBUG_MODE=coverage",
+            "infection --ansi --threads=max --logger-github --show-mutations=0 --min-msi=90 --min-covered-msi=90"
+        ],
+        "psalm": "psalm -c tools/psalm/psalm.xml",
+        "psalm:baseline": "psalm -c tools/psalm/psalm.xml --set-baseline=tools/psalm/psalm-baseline.xml",
+        "psalm:ci": "psalm -c tools/psalm/psalm.xml --output-format=github --shepherd --show-info=false --stats --threads=4",
+        "structarmed": "structarmed analyze --config=tools/structarmed/structarmed.php",
         "test": "testo",
         "test:acceptance": "testo --suite=Acceptance",
         "test:feature": "testo --suite=Feature",
-        "test:unit": "testo --suite=Unit",
-        "structarmed": "structarmed analyze"
+        "test:unit": "testo --suite=Unit"
     },
     "config": {
         "sort-packages": true,
         "allow-plugins": {
+            "bamarni/composer-bin-plugin": true,
             "php-http/discovery": false,
             "spiral/composer-publish-plugin": false,
             "tbachert/spi": false,
@@ -89,6 +97,11 @@
         }
     },
     "extra": {
+        "bamarni-bin": {
+            "bin-links": true,
+            "forward-command": false,
+            "target-directory": "tools"
+        },
         "spiral": {
             "bootloaders": [
                 "Spiral\\OpenTelemetry\\Bootloader\\OpenTelemetryBootloader"

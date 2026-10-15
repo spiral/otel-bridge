@@ -15,7 +15,29 @@ concurrency:
 
 jobs:
   psalm:
-    uses: spiral/gh-actions/.github/workflows/psalm.yml@master
-    with:
-      os: >-
-        ['ubuntu-latest']
+    name: Psalm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: highest
+
+      # Psalm is isolated in tools/psalm via bamarni/composer-bin-plugin.
+      - name: Install Psalm
+        run: composer bin psalm install --no-interaction --no-progress
+
+      - name: Run Psalm
+        run: composer psalm:ci
