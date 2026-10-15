@@ -40,6 +40,7 @@
         "open-telemetry/sem-conv": "<1.22"
     },
     "require-dev": {
+        "boundwize/structarmed": "^0.19",
         "buggregator/trap": "^1.17",
         "jasonmccreary/double": "^1.0.1",
         "llm/skills": "^1.14",
@@ -75,7 +76,8 @@
         "test": "testo",
         "test:acceptance": "testo --suite=Acceptance",
         "test:feature": "testo --suite=Feature",
-        "test:unit": "testo --suite=Unit"
+        "test:unit": "testo --suite=Unit",
+        "structarmed": "structarmed analyze"
     },
     "config": {
         "sort-packages": true,
