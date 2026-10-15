@@ -128,25 +128,89 @@ final class Tracer extends AbstractTracer
     }
 
     /**
-     * Convert mixed values to scalar or null.
+     * Convert values to what the SDK accepts as an attribute: a primitive, or a list of primitives of one
+     * type (int and float count as one). `null` is passed on, and the SDK removes the attribute.
      *
      * @param iterable<non-empty-string, mixed> $attributes
      *
-     * @return iterable<non-empty-string, null|scalar|array<array-key, null|scalar>>
+     * @return iterable<non-empty-string, null|scalar|list<scalar>>
      */
     private static function normalizeAttributes(iterable $attributes): iterable
     {
         $normalized = [];
         /** @psalm-suppress MixedAssignment Attribute values are mixed by contract */
         foreach ($attributes as $key => $value) {
-            $normalized[$key] = match (true) {
-                !\is_array($value) => self::normalizeAttributeValue($value),
-                \array_keys($value) === [0] => self::normalizeAttributeValue($value[0]),
-                default => \array_map(self::normalizeAttributeValue(...), $value),
-            };
+            $normalized[$key] = \is_array($value)
+                ? self::normalizeArray($value)
+                : self::normalizeAttributeValue($value);
         }
 
         return $normalized;
+    }
+
+    /**
+     * A list of one type stays a list, whatever its length; maps, nested and mixed lists become JSON.
+     *
+     * @return list<scalar>|string
+     */
+    private static function normalizeArray(array $value): array|string
+    {
+        return self::normalizeList($value) ?? self::encodeJson(\array_map(self::resolveObjects(...), $value));
+    }
+
+    /**
+     * The list as a list of primitives of one type, or null when it is not one.
+     *
+     * The SDK drops a list with `null` in it, so `null` items become the empty value of the list's type,
+     * as the spec allows where `null` cannot be exported. This keeps the list a list, and its indexes in
+     * sync with a parallel list.
+     *
+     * @return list<scalar>|null
+     */
+    private static function normalizeList(array $value): ?array
+    {
+        if (!\array_is_list($value) || \array_filter($value, \is_array(...)) !== []) {
+            return null;
+        }
+
+        $items = \array_map(self::normalizeAttributeValue(...), $value);
+        $type = null;
+        foreach ($items as $item) {
+            $itemType = match (true) {
+                $item === null => $type,
+                \is_int($item), \is_float($item) => 'number',
+                default => \gettype($item),
+            };
+            if ($type !== null && $itemType !== $type) {
+                return null;
+            }
+            $type = $itemType;
+        }
+
+        $empty = match ($type) {
+            'number' => 0,
+            'boolean' => false,
+            default => '',
+        };
+
+        return \array_map(static fn(mixed $item): bool|int|float|string => $item ?? $empty, $items);
+    }
+
+    /**
+     * Replace the objects and resources inside a value with their attribute value, so that the JSON carries
+     * the enum value or the date rather than the object's public properties. JsonSerializable is left to
+     * encodeJson(). Stops at {@see self::MAX_DEPTH}, which also stops a recursive array: encodeJson()
+     * rejects anything deeper.
+     */
+    private static function resolveObjects(mixed $value, int $depth = self::MAX_DEPTH): mixed
+    {
+        return match (true) {
+            \is_array($value) => $depth > 0
+                ? \array_map(static fn(mixed $item): mixed => self::resolveObjects($item, $depth - 1), $value)
+                : $value,
+            $value === null, \is_scalar($value), $value instanceof \JsonSerializable => $value,
+            default => self::normalizeAttributeValue($value),
+        };
     }
 
     /**
@@ -156,8 +220,13 @@ final class Tracer extends AbstractTracer
     {
         return match (true) {
             $value === null || \is_scalar($value) => $value,
+            $value instanceof \BackedEnum => $value->value,
+            $value instanceof \UnitEnum => $value->name,
+            $value instanceof \DateTimeInterface => $value->format(
+                $value->format('u') === '000000' ? \DATE_RFC3339 : 'Y-m-d\TH:i:s.uP',
+            ),
             $value instanceof \Stringable => $value->__toString(),
-            \is_array($value) || $value instanceof \JsonSerializable => self::encodeJson($value),
+            $value instanceof \JsonSerializable => self::encodeJson($value),
             \is_object($value) => $value::class,
             default => \get_debug_type($value),
         };

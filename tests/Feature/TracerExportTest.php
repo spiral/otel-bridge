@@ -14,6 +14,10 @@ use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributePriority;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeSize;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeStatus;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeText;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\JsonValue;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\ThrowingJson;
 use Spiral\OpenTelemetry\Tracer;
@@ -104,26 +108,98 @@ final class TracerExportTest
         $recursive = [1];
         $recursive[] = &$recursive;
 
-        yield 'invalid UTF-8' => [['a', ["\xFF"]], ['a', '["�"]']];
-        yield 'non-finite floats' => [['a', [\NAN, \INF, -\INF, 1.5]], ['a', '["NaN","Infinity","-Infinity",1.5]']];
+        yield 'invalid UTF-8' => [['a', ["\xFF"]], '["a",["�"]]'];
+        yield 'non-finite floats' => [['a', [\NAN, \INF, -\INF, 1.5]], '["a",["NaN","Infinity","-Infinity",1.5]]'];
         yield 'map with null' => [new JsonValue(['k' => ["\xFF"], 'n' => null]), '{"k":["�"],"n":null}'];
         yield 'nested JsonSerializable' => [new JsonValue([new JsonValue(\NAN)]), '["NaN"]'];
-        yield 'unicode and slashes' => [['a', ['Привет', 'a/b']], ['a', '["Привет","a/b"]']];
-        yield 'deepest allowed nesting' => [['a', self::nest(63)], ['a', \str_repeat('[', 64) . \str_repeat(']', 64)]];
-        yield 'too deep' => [['a', self::nest(64)], ['a', 'array']];
-        yield 'recursive array' => [['a', $recursive], ['a', 'array']];
-        yield 'resource inside' => [['a', [\fopen('php://memory', 'rb')]], ['a', 'array']];
+        yield 'unicode and slashes' => [['a', ['Привет', 'a/b']], '["a",["Привет","a/b"]]'];
+        yield 'deepest allowed nesting' => [['a', self::nest(62)], '["a",' . \str_repeat('[', 63) . \str_repeat(']', 63) . ']'];
+        yield 'too deep' => [['a', self::nest(63)], 'array'];
+        yield 'recursive array' => [['a', $recursive], 'array'];
+        yield 'resource inside' => [['a', [\fopen('php://memory', 'rb')]], '["a",["resource (stream)"]]'];
         yield 'throwing jsonSerialize()' => [new ThrowingJson(), ThrowingJson::class];
     }
 
     #[DataProvider('structuredValues')]
-    public function structuredAttributeIsEncodedAsJson(mixed $value, string|array $expected): void
+    public function structuredAttributeIsEncodedAsJson(mixed $value, string $expected): void
     {
         $span = $this->traceOne(static fn(SpanInterface $span) => $span->setAttribute('value', $value));
 
         Assert::same($span->getAttributes()->toArray(), ['value' => $expected]);
         Assert::same($span->getAttributes()->getDroppedAttributesCount(), 0);
         Assert::count($span->getEvents(), 0);
+    }
+
+    #[DataSet([[], []], 'empty')]
+    #[DataSet([['X'], ['X']], 'one string')]
+    #[DataSet([[42], [42]], 'one int')]
+    #[DataSet([[''], ['']], 'one empty string')]
+    #[DataSet([['a', 'b'], ['a', 'b']], 'strings')]
+    #[DataSet([[true, false], [true, false]], 'bools')]
+    #[DataSet([[1, 2.5], [1, 2.5]], 'ints and floats')]
+    #[DataSet([['0' => 'X'], ['X']], 'numeric-string key')]
+    #[DataSet([[new AttributeText('a'), 'b'], ['a', 'b']], 'Stringable and string')]
+    #[DataSet([[AttributeStatus::Paid, AttributeStatus::Refunded], ['paid', 'refunded']], 'string enums')]
+    #[DataSet([[AttributeSize::Small, 'x'], ['Small', 'x']], 'unit enum and string')]
+    public function listOfOneTypeIsExportedAsList(array $value, array $expected): void
+    {
+        $this->assertExported($value, $expected);
+    }
+
+    /**
+     * `null` cannot be an item of an exported list, so it is replaced by the empty value of the list's type.
+     */
+    #[DataSet([['a', null], ['a', '']], 'string and null')]
+    #[DataSet([[null, 'a'], ['', 'a']], 'null and string')]
+    #[DataSet([[1, null, 2.5], [1, 0, 2.5]], 'numbers and null')]
+    #[DataSet([[true, null], [true, false]], 'bool and null')]
+    #[DataSet([[null], ['']], 'only null')]
+    #[DataSet([[null, null], ['', '']], 'nulls')]
+    public function nullItemOfListIsExportedAsEmptyValueOfItsType(array $value, array $expected): void
+    {
+        $this->assertExported($value, $expected);
+    }
+
+    #[DataSet([['foo', 'baf', 42], '["foo","baf",42]'], 'strings and int')]
+    #[DataSet([[true, 'x'], '[true,"x"]'], 'bool and string')]
+    #[DataSet([[1.5, 'x'], '[1.5,"x"]'], 'float and string')]
+    #[DataSet([['a', 1, null], '["a",1,null]'], 'mixed with null')]
+    #[DataSet([['a', ['b']], '["a",["b"]]'], 'string and nested list')]
+    #[DataSet([[['a'], ['b', 'c']], '[["a"],["b","c"]]'], 'nested lists')]
+    #[DataSet([[new AttributeText('a'), 1], '["a",1]'], 'Stringable and int')]
+    #[DataSet([[AttributeSize::Small, AttributePriority::High], '["Small",42]'], 'unit enum and int enum')]
+    #[DataSet([[new \stdClass(), 1], '["stdClass",1]'], 'object and int')]
+    #[DataSet([['k' => 'v'], '{"k":"v"}'], 'map')]
+    #[DataSet([['k' => null], '{"k":null}'], 'map with null')]
+    #[DataSet([[1 => 'x'], '{"1":"x"}'], 'int key not zero')]
+    #[DataSet([[1 => 'a', 2 => 'b'], '{"1":"a","2":"b"}'], 'list with a hole')]
+    #[DataSet([['k' => ['a', 1]], '{"k":["a",1]}'], 'map of mixed list')]
+    #[DataSet([['k' => AttributeStatus::Paid, 't' => new AttributeText('x')], '{"k":"paid","t":"x"}'], 'map of objects')]
+    #[DataSet(
+        [['at' => new \DateTimeImmutable('2024-02-29T13:14:15+03:00')], '{"at":"2024-02-29T13:14:15+03:00"}'],
+        'map of date',
+    )]
+    public function arrayThatIsNotListOfOneTypeIsExportedAsJson(array $value, string $expected): void
+    {
+        $this->assertExported($value, $expected);
+    }
+
+    #[DataSet([AttributeStatus::Paid, 'paid'], 'string enum')]
+    #[DataSet([AttributePriority::High, 42], 'int enum')]
+    #[DataSet([AttributeSize::Small, 'Small'], 'unit enum')]
+    #[DataSet([new \DateTimeImmutable('2024-02-29T13:14:15+03:00'), '2024-02-29T13:14:15+03:00'], 'date')]
+    #[DataSet([new \DateTime('1999-12-31T23:59:59Z'), '1999-12-31T23:59:59+00:00'], 'mutable date in UTC')]
+    #[DataSet([new \DateTimeImmutable('2024-02-29T13:14:15.25Z'), '2024-02-29T13:14:15.250000+00:00'], 'date with fraction')]
+    public function enumAndDateAreExportedAsTheirValue(object $value, int|string $expected): void
+    {
+        $this->assertExported($value, $expected);
+    }
+
+    public function nullAttributeIsNotExported(): void
+    {
+        $span = $this->traceOne(static fn(SpanInterface $span) => $span->setAttribute('value', null));
+
+        Assert::same($span->getAttributes()->toArray(), []);
     }
 
     public function resourceAttributeIsDescribedByType(): void
@@ -286,6 +362,14 @@ final class TracerExportTest
             TraceContextPropagator::getInstance(),
             $context,
         );
+    }
+
+    private function assertExported(mixed $value, mixed $expected): void
+    {
+        $span = $this->traceOne(static fn(SpanInterface $span) => $span->setAttribute('value', $value));
+
+        Assert::same($span->getAttributes()->toArray(), ['value' => $expected]);
+        Assert::same($span->getAttributes()->getDroppedAttributesCount(), 0);
     }
 
     private function traceOne(\Closure $callback, array $context = []): SpanDataInterface

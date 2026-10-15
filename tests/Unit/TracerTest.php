@@ -47,10 +47,10 @@ final class TracerTest
         $span->allows('setAttributes')->with(Argument::satisfies(static fn(mixed $attributes): bool => $attributes == [
             'baz' => 'baf',
             'foo' => 'bar',
-            'list' => ['foo', 'baf', 42],
-            'kv' => ['key' => 'value', 'foo' => 'bar'],
-            'nested' => ['key' => '{"foo":"bar"}'],
-            'list-of-one' => 42,
+            'list' => '["foo","baf",42]',
+            'kv' => '{"key":"value","foo":"bar"}',
+            'nested' => '{"key":{"foo":"bar"}}',
+            'list-of-one' => [42],
             'stringable' => 'stringable value',
             'jsonable' => '{"foo":{"bar":"baz"}}',
         ]))->returns($span);
