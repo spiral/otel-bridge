@@ -234,9 +234,9 @@ final class AttributesTest extends TestCase
      * What json_encode() cannot encode is replaced as the OTel spec prescribes for a non-OTLP AnyValue:
      * invalid UTF-8 with U+FFFD, NaN with the JSON string "NaN".
      */
-    #[DataSet([new AttributesJson(["\xFF"]), '["\ufffd"]'], 'JsonSerializable with invalid UTF-8')]
-    #[DataSet([['a', ["\xFF"]], ['a', '["\ufffd"]']], 'nested list with invalid UTF-8')]
-    #[DataSet([['k' => ["\xFF"]], ['k' => '["\ufffd"]']], 'map with nested invalid UTF-8')]
+    #[DataSet([new AttributesJson(["\xFF"]), '["�"]'], 'JsonSerializable with invalid UTF-8')]
+    #[DataSet([['a', ["\xFF"]], ['a', '["�"]']], 'nested list with invalid UTF-8')]
+    #[DataSet([['k' => ["\xFF"]], ['k' => '["�"]']], 'map with nested invalid UTF-8')]
     #[DataSet([['a', [\NAN]], ['a', '["NaN"]']], 'nested NaN')]
     public function unencodableValueArrivesAsJsonWithReplacements(mixed $value, string|array $expected): void
     {

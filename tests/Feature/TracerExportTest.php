@@ -104,10 +104,13 @@ final class TracerExportTest
         $recursive = [1];
         $recursive[] = &$recursive;
 
-        yield 'invalid UTF-8' => [['a', ["\xFF"]], ['a', '["\ufffd"]']];
+        yield 'invalid UTF-8' => [['a', ["\xFF"]], ['a', '["�"]']];
         yield 'non-finite floats' => [['a', [\NAN, \INF, -\INF, 1.5]], ['a', '["NaN","Infinity","-Infinity",1.5]']];
-        yield 'map with null' => [new JsonValue(['k' => ["\xFF"], 'n' => null]), '{"k":["\ufffd"],"n":null}'];
+        yield 'map with null' => [new JsonValue(['k' => ["\xFF"], 'n' => null]), '{"k":["�"],"n":null}'];
         yield 'nested JsonSerializable' => [new JsonValue([new JsonValue(\NAN)]), '["NaN"]'];
+        yield 'unicode and slashes' => [['a', ['Привет', 'a/b']], ['a', '["Привет","a/b"]']];
+        yield 'deepest allowed nesting' => [['a', self::nest(63)], ['a', \str_repeat('[', 64) . \str_repeat(']', 64)]];
+        yield 'too deep' => [['a', self::nest(64)], ['a', 'array']];
         yield 'recursive array' => [['a', $recursive], ['a', 'array']];
         yield 'resource inside' => [['a', [\fopen('php://memory', 'rb')]], ['a', 'array']];
         yield 'throwing jsonSerialize()' => [new ThrowingJson(), ThrowingJson::class];
@@ -265,6 +268,14 @@ final class TracerExportTest
             $tracer->getContext(),
             ['traceparent' => '00-' . $span->getTraceId() . '-' . $span->getSpanId() . '-01'],
         );
+    }
+
+    /**
+     * An empty array wrapped in $levels more arrays.
+     */
+    private static function nest(int $levels): array
+    {
+        return $levels === 0 ? [] : [self::nest($levels - 1)];
     }
 
     private function createTracer(array $context = []): Tracer

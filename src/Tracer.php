@@ -19,8 +19,11 @@ use Spiral\Telemetry\TraceKind;
 
 final class Tracer extends AbstractTracer
 {
-    /** The json_encode() default. */
-    private const JSON_DEPTH = 512;
+    /**
+     * Nesting limit for structured attribute values, the default of the OTel AttributeValueDepthLimit.
+     * Keeps a recursive walk far below Xdebug's max_nesting_level.
+     */
+    private const MAX_DEPTH = 64;
 
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
     private readonly TracestateGetter $getter;
@@ -165,13 +168,18 @@ final class Tracer extends AbstractTracer
      * representation: lists become arrays, maps become objects, null becomes `null`, non-finite floats become
      * the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, and invalid UTF-8 is replaced with U+FFFD.
      *
-     * Never fails: a value that cannot be encoded (a resource or a recursive or too deep structure inside,
-     * or a throwing jsonSerialize()) becomes its type, e.g. `array` or the class name.
+     * Non-ASCII characters and slashes are not escaped.
+     *
+     * Never fails: a value that cannot be encoded (a resource inside, nesting deeper than {@see self::MAX_DEPTH},
+     * which includes a recursive array, or a throwing jsonSerialize()) becomes its type, e.g. `array` or the class name.
      */
     private static function encodeJson(array|\JsonSerializable $value): string
     {
         try {
-            $json = \json_encode(self::prepareJson($value, self::JSON_DEPTH), \JSON_INVALID_UTF8_SUBSTITUTE, self::JSON_DEPTH);
+            $json = \json_encode(
+                self::prepareJson($value, self::MAX_DEPTH),
+                \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES,
+            );
         } catch (\Throwable) {
             # jsonSerialize() is user code, and the attributes are set after the callback has already succeeded.
             $json = false;
@@ -183,12 +191,14 @@ final class Tracer extends AbstractTracer
     /**
      * Resolve JsonSerializable values and replace non-finite floats, which json_encode() rejects.
      *
+     * @param int $depth How many more levels of arrays and JsonSerializable objects may be entered.
+     *
      * @throws \JsonException when the nesting exceeds $depth, which also stops a recursive array.
      */
     private static function prepareJson(mixed $value, int $depth): mixed
     {
-        if ($depth < 0) {
-            throw new \JsonException('Maximum stack depth exceeded.');
+        if ($depth === 0 && (\is_array($value) || $value instanceof \JsonSerializable)) {
+            throw new \JsonException('Maximum nesting depth exceeded.');
         }
 
         return match (true) {
