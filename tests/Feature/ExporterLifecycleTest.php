@@ -39,7 +39,6 @@ final class ExporterLifecycleTest
 
     #[DataSet([self::NONE], 'none')]
     #[DataSet([self::UNKNOWN], 'unknown exporter')]
-    #[Skip('Known issue: the factory outcome is not memoized when it is null or throws, see https://github.com/spiral/otel-bridge/issues/21')]
     public function failedFactoryOutcomeIsResolvedOnce(string $outcome): void
     {
         $factory = self::factory($outcome);
@@ -67,7 +66,6 @@ final class ExporterLifecycleTest
      * `none` is "no exporter": nothing to export is a successful export.
      * https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#exporter-selection
      */
-    #[Skip('Known issue: with OTEL_TRACES_EXPORTER=none export() fails with "Exporter is not initialized.", see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneExportSucceeds(): void
     {
         $exporter = new DeferredSpanExporter(self::factory(self::NONE));
@@ -81,7 +79,6 @@ final class ExporterLifecycleTest
 
     #[DataSet(['forceFlush'], 'forceFlush')]
     #[DataSet(['shutdown'], 'shutdown')]
-    #[Skip('Known issue: with OTEL_TRACES_EXPORTER=none forceFlush() and shutdown() return false, see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneFlushAndShutdownSucceed(string $method): void
     {
         $exporter = new DeferredSpanExporter(self::factory(self::NONE));
@@ -97,7 +94,6 @@ final class ExporterLifecycleTest
      */
     #[DataSet(['forceFlush'], 'forceFlush')]
     #[DataSet(['shutdown'], 'shutdown')]
-    #[Skip('Known issue: an unknown exporter makes forceFlush() and shutdown() throw, see https://github.com/spiral/otel-bridge/issues/21')]
     public function unknownExporterNeverThrowsFromFlushOrShutdown(string $method): void
     {
         $exporter = new DeferredSpanExporter(self::factory(self::UNKNOWN));
