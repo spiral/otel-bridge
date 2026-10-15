@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Feature;
 
+use OpenTelemetry\API\Behavior\Internal\Logging;
+use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
@@ -183,10 +185,28 @@ final class TracerExportTest
             'tracestate' => $tracestate,
         ]);
 
-        $tracer->trace('test', static fn() => null);
+        # The SDK warns about the discarded tracestate; keep it off stderr, where Infection stops the run.
+        $log = new class implements LogWriterInterface {
+            /** @var list<string> */
+            public array $levels = [];
+
+            #[\Override]
+            public function write($level, string $message, array $context): void
+            {
+                $this->levels[] = (string) $level;
+            }
+        };
+        Logging::setLogWriter($log);
+
+        try {
+            $tracer->trace('test', static fn() => null);
+        } finally {
+            Logging::reset();
+        }
 
         Assert::same((string) $this->exporter->getSpans()[0]->getContext()->getTraceState(), '');
         Assert::false(isset($tracer->getContext()['tracestate']));
+        Assert::same($log->levels, ['warning']);
     }
 
     public function propagatedContextBecomesParent(): void
