@@ -20,7 +20,6 @@ use Testo\Assert;
 use Testo\Data\DataCross;
 use Testo\Data\DataProvider;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -32,8 +31,8 @@ use Testo\Test;
  * https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/common/README.md#attribute
  *
  * The PHP SDK still validates against the older rule (primitives or homogeneous arrays only) and drops
- * anything else, so where the spec allows several shapes the tests accept any shape that loses no data,
- * see {@see self::preserves()}.
+ * anything else, so the bridge sends a list of one type as an array of any length, and any other array
+ * as its JSON. Values of which only the absence of data loss is checked go through {@see self::preserves()}.
  */
 #[Test]
 final class AttributesTest extends TestCase
@@ -98,28 +97,33 @@ final class AttributesTest extends TestCase
         yield 'JsonSerializable' => [new AttributesJson(['a' => 1])];
     }
 
-    public static function droppedValues(): iterable
+    public static function convertedValues(): iterable
     {
-        yield 'strings and int' => [['foo', 'bar', 42]];
-        yield 'int and string' => [[1, 'x']];
-        yield 'bool and string' => [[true, 'x']];
-        yield 'float and string' => [[1.5, 'x']];
-        yield 'Stringable and int' => [[new AttributesText('a'), 1]];
-        yield 'string and null' => [['a', null]];
-        yield 'null and string' => [[null, 'a']];
-        yield 'int and null' => [[1, null]];
-        yield 'bool and null' => [[true, null]];
-        yield 'only null' => [[null]];
-        yield 'nulls' => [[null, null]];
-        yield 'all types' => [['a', 1, true, 1.5, null]];
-        yield 'map of mixed' => [['a' => 1, 'b' => 'x']];
-        yield 'map with null' => [['k' => null]];
-        yield 'string enum' => [AttributesStatus::Paid];
-        yield 'int enum' => [AttributesPriority::High];
-        yield 'unit enum' => [AttributesSize::Small];
-        yield 'list of enums' => [[AttributesStatus::Paid, AttributesStatus::Refunded]];
-        yield 'DateTimeImmutable' => [new \DateTimeImmutable('2024-02-29T13:14:15+03:00')];
-        yield 'DateTime' => [new \DateTime('1999-12-31T23:59:59Z')];
+        yield 'strings and int' => [['foo', 'bar', 42], '["foo","bar",42]'];
+        yield 'int and string' => [[1, 'x'], '[1,"x"]'];
+        yield 'bool and string' => [[true, 'x'], '[true,"x"]'];
+        yield 'float and string' => [[1.5, 'x'], '[1.5,"x"]'];
+        yield 'Stringable and int' => [[new AttributesText('a'), 1], '["a",1]'];
+        yield 'string and null' => [['a', null], ['a', '']];
+        yield 'null and string' => [[null, 'a'], ['', 'a']];
+        yield 'int and null' => [[1, null], [1, 0]];
+        yield 'bool and null' => [[true, null], [true, false]];
+        yield 'ints and floats' => [[1, 2.5], [1.0, 2.5]];
+        yield 'numbers and null' => [[1, null, 2.5], [1.0, 0.0, 2.5]];
+        yield 'JsonSerializable in list' => [['a', new AttributesJson(['x' => 1])], '["a",{"x":1}]'];
+        yield 'only null' => [[null], ['']];
+        yield 'nulls' => [[null, null], ['', '']];
+        yield 'all types' => [['a', 1, true, 1.5, null], '["a",1,true,1.5,null]'];
+        yield 'map of mixed' => [['a' => 1, 'b' => 'x'], '{"a":1,"b":"x"}'];
+        yield 'map with null' => [['k' => null], '{"k":null}'];
+        yield 'string enum' => [AttributesStatus::Paid, 'paid'];
+        yield 'int enum' => [AttributesPriority::High, 42];
+        yield 'unit enum' => [AttributesSize::Small, 'Small'];
+        yield 'list of enums' => [[AttributesStatus::Paid, AttributesStatus::Refunded], ['paid', 'refunded']];
+        yield 'map of enums' => [['s' => AttributesSize::Small, 'p' => AttributesPriority::Low], '{"s":"Small","p":7}'];
+        yield 'DateTimeImmutable' => [new \DateTimeImmutable('2024-02-29T13:14:15+03:00'), '2024-02-29T13:14:15+03:00'];
+        yield 'DateTime' => [new \DateTime('1999-12-31T23:59:59Z'), '1999-12-31T23:59:59+00:00'];
+        yield 'date with fraction' => [new \DateTimeImmutable('2024-02-29T13:14:15.25Z'), '2024-02-29T13:14:15.250000+00:00'];
     }
 
     public static function setters(): iterable
@@ -143,16 +147,12 @@ final class AttributesTest extends TestCase
 
     public static function settableValues(): iterable
     {
-        yield 'scalar' => ['plain'];
-        yield 'list' => [['a', 'b']];
-        yield 'map' => [['k' => 'v']];
-    }
-
-    public static function droppedSettableValues(): iterable
-    {
-        yield 'list of one' => [['X']];
-        yield 'mixed list' => [['a', 1]];
-        yield 'list with null' => [['a', null]];
+        yield 'scalar' => ['plain', 'plain'];
+        yield 'list' => [['a', 'b'], ['a', 'b']];
+        yield 'list of one' => [['X'], ['X']];
+        yield 'list with null' => [['a', null], ['a', '']];
+        yield 'mixed list' => [['a', 1], '["a",1]'];
+        yield 'map' => [['k' => 'v'], '{"k":"v"}'];
     }
 
     public function defineBootloaders(): array
@@ -189,7 +189,6 @@ final class AttributesTest extends TestCase
     }
 
     #[DataProvider('singleItemLists')]
-    #[Skip('Known issue: single-element lists are collapsed to a scalar, see https://github.com/spiral/otel-bridge/issues/20')]
     public function singleItemListArrivesAsListOfOne(array $value, array $expected): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('value', $value));
@@ -218,34 +217,34 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * @todo Question: which shape should mixed lists and associative arrays take? The spec allows AnyValue
-     *       (heterogeneous arrays, maps); #20 proposes string[] and JSON. The test accepts any lossless shape.
+     * A list that is not a homogeneous array (mixed types, nested arrays or JsonSerializable items) and a
+     * map arrive as JSON, by the spec's string representation of AnyValue. A `null` item of a list of one
+     * type becomes the empty value of that type, as the spec allows where `null` cannot be exported; ints
+     * in a list with floats become floats. A backed enum arrives as its value, a pure enum as its name,
+     * a date as RFC 3339.
+     * https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/common/README.md#anyvalue-representation-for-non-otlp-protocols
      */
-    #[DataProvider('droppedValues')]
-    #[Skip('Known issue: mixed, null-containing and enum/date values are dropped or reduced to a class name, see https://github.com/spiral/otel-bridge/issues/20')]
-    public function droppedValueArrivesWithoutDataLoss(mixed $value): void
+    #[DataProvider('convertedValues')]
+    public function convertedValueArrivesInSpecShape(mixed $value, mixed $expected): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('value', $value));
 
-        $this->assertPreserved($value, $this->received());
+        $this->assertReceived(['value' => $expected]);
     }
 
     /**
-     * Invalid UTF-8 cannot be put into JSON without loss; what is checked is that the value is not
-     * turned into `false` or dropped.
+     * What json_encode() cannot encode is replaced as the OTel spec prescribes for a non-OTLP AnyValue:
+     * invalid UTF-8 with U+FFFD, NaN with the JSON string "NaN".
      */
-    #[DataSet([new AttributesJson(["\xFF"])], 'JsonSerializable with invalid UTF-8')]
-    #[DataSet([['a', ["\xFF"]]], 'nested list with invalid UTF-8')]
-    #[DataSet([['k' => ["\xFF"]]], 'map with nested invalid UTF-8')]
-    #[DataSet([['a', [\NAN]]], 'nested NaN')]
-    #[Skip('Known issue: a value json_encode() fails on becomes false or drops the attribute, see https://github.com/spiral/otel-bridge/issues/24')]
-    public function unencodableValueArrivesAsString(mixed $value): void
+    #[DataSet([new AttributesJson(["\xFF"]), '["�"]'], 'JsonSerializable with invalid UTF-8')]
+    #[DataSet([['a', ["\xFF"]], '["a",["�"]]'], 'nested list with invalid UTF-8')]
+    #[DataSet([['k' => ["\xFF"]], '{"k":["�"]}'], 'map with nested invalid UTF-8')]
+    #[DataSet([['a', [\NAN]], '["a",["NaN"]]'], 'nested NaN')]
+    public function unencodableValueArrivesAsJsonWithReplacements(mixed $value, string $expected): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('value', $value));
 
-        $received = $this->received();
-        Assert::true(\array_key_exists('value', $received), 'The attribute was dropped.');
-        Assert::true(self::containsNoBool($received['value']), 'Received ' . self::export($received['value']));
+        $this->assertReceived(['value' => $expected]);
     }
 
     /**
@@ -273,20 +272,11 @@ final class AttributesTest extends TestCase
      * The start attributes, setAttribute() and setAttributes() all go through the same conversion.
      */
     #[DataCross(new DataProvider('setters'), new DataProvider('settableValues'))]
-    public function valueArrivesTheSameWhereverItIsSet(\Closure $trace, mixed $value): void
+    public function valueArrivesTheSameWhereverItIsSet(\Closure $trace, mixed $value, mixed $expected): void
     {
         $trace($this->tracer(), $value);
 
-        $this->assertPreserved($value, $this->received());
-    }
-
-    #[DataCross(new DataProvider('setters'), new DataProvider('droppedSettableValues'))]
-    #[Skip('Known issue: single-element and mixed lists are collapsed or dropped, see https://github.com/spiral/otel-bridge/issues/20')]
-    public function droppedValueArrivesTheSameWhereverItIsSet(\Closure $trace, mixed $value): void
-    {
-        $trace($this->tracer(), $value);
-
-        $this->assertPreserved($value, $this->received());
+        $this->assertReceived(['value' => $expected]);
     }
 
     #[DataSet(['start', 'callback', 'callback'], 'scalar by scalar')]
@@ -306,7 +296,6 @@ final class AttributesTest extends TestCase
 
     #[DataSet([['x', 'y'], ['z'], ['z']], 'list by list of one')]
     #[DataSet(['scalar', ['z'], ['z']], 'scalar by list of one')]
-    #[Skip('Known issue: single-element lists are collapsed to a scalar, see https://github.com/spiral/otel-bridge/issues/20')]
     public function attributeOverriddenByListOfOneArrivesAsList(mixed $start, mixed $callback, mixed $expected): void
     {
         $this->tracer()->trace(
@@ -360,7 +349,6 @@ final class AttributesTest extends TestCase
     }
 
     #[Env('OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT', '5')]
-    #[Skip('Known issue: single-element lists are collapsed to a scalar, see https://github.com/spiral/otel-bridge/issues/20')]
     public function valueLengthLimitKeepsListOfOneAList(): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('list', ['abcdefgh']));
@@ -411,7 +399,6 @@ final class AttributesTest extends TestCase
     }
 
     #[Env('ATTRIBUTES_HTTP_MIDDLEWARE', '1')]
-    #[Skip('Known issue: single-element lists are collapsed to a scalar, see https://github.com/spiral/otel-bridge/issues/20')]
     public function singleMiddlewareArrivesAsListOfOne(): void
     {
         $this->fakeHttp()->get('/ping')->assertOk();
@@ -421,18 +408,16 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * `spiral/http` sends the request headers as a `[name => value]` array.
+     * `spiral/http` sends the request headers as a `[name => value]` array, which arrives as a JSON object.
      */
-    public function requestHeadersArriveWithoutDataLoss(): void
+    public function requestHeadersArriveAsJsonObject(): void
     {
         $this->fakeHttp()->get('/ping', headers: ['x-one' => 'a', 'x-many' => ['b', 'c']])->assertOk();
 
         $span = $this->traces()->await(1)->named('GET /ping');
         $headers = $span->attributes['http.headers'] ?? null;
-        $headers = \is_string($headers) ? \json_decode($headers, true) : $headers;
-        Assert::true(\is_array($headers), 'Received ' . self::export($span->attributes['http.headers'] ?? null));
-        Assert::same($headers['x-one'] ?? null, 'a');
-        Assert::same($headers['x-many'] ?? null, 'b,c');
+        Assert::string($headers);
+        Assert::same(\json_decode($headers, true), ['x-one' => 'a', 'x-many' => 'b,c']);
     }
 
     /**
@@ -489,15 +474,6 @@ final class AttributesTest extends TestCase
         }
 
         return true;
-    }
-
-    private static function containsNoBool(mixed $value): bool
-    {
-        return match (true) {
-            \is_bool($value) => false,
-            \is_array($value) => \array_filter($value, static fn(mixed $item): bool => !self::containsNoBool($item)) === [],
-            default => true,
-        };
     }
 
     private static function export(mixed $value): string
