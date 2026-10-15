@@ -37,6 +37,7 @@ final class TracerProviderFinalizer
         # `false` is not worth a report: failed exports are logged by the SDK, and a closed processor
         # answers `false` too.
         try {
+            # @infection-ignore-all Killed only by the tests of process exit, which run the unmutated src.
             $terminate ? $this->provider->shutdown() : $this->provider->forceFlush();
         } catch (\Throwable $e) {
             $this->report($e);
@@ -55,7 +56,7 @@ final class TracerProviderFinalizer
             $reporter->report($e);
         } catch (\Throwable $reporterError) {
             self::logError(
-                "Unable to flush spans; the exception reporter failed too: {$reporterError->getMessage()}",
+                "Unable to export spans; could not report the failure: {$reporterError->getMessage()}",
                 ['exception' => $e],
             );
         }

@@ -106,7 +106,9 @@ final class OpenTelemetryBootloader extends Bootloader
         $providerFinalizer = new TracerProviderFinalizer($provider, $container);
         # At exit PHP runs shutdown functions before the kernel destructor calls finalize(true), and after
         # a fatal error only them. The reference is weak: an app already destroyed is not shut down twice.
+        # @infection-ignore-all Only the tests of process exit see it, and they run the unmutated src.
         ShutdownHandler::register($providerFinalizer->shutdown(...));
+        # @infection-ignore-all Killed only by the tests of process exit, which run the unmutated src.
         $finalizer->addFinalizer($providerFinalizer);
 
         return $provider;

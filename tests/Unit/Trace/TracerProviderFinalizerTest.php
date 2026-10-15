@@ -58,7 +58,7 @@ final class TracerProviderFinalizerTest
         }
 
         Assert::count($log->entries, 1);
-        Assert::string($log->entries[0])->contains('Unable to flush spans; the exception reporter failed too:');
+        Assert::string($log->entries[0])->contains('Unable to export spans; could not report the failure:');
         Assert::string($log->entries[0])->contains('[Exporter failed]');
     }
 

@@ -13,12 +13,16 @@ use Testo\Test;
 /**
  * A process that ends without finalize(true), as after a fatal error, still exports the queued spans.
  * Runs `tests/Process/exit-without-finalize.php` in a PHP subprocess, since only process exit shows it.
+ * Mutation testing cannot reach this path: the child process loads the real src, not the mutant.
  */
 #[Test]
 #[Covers(OpenTelemetryBootloader::class)]
 #[Covers(TracerProviderFinalizer::class)]
 final class ExitWithoutFinalizeTest
 {
+    /** Seconds the child process gets to exit. */
+    private const TIMEOUT = 30;
+
     public function queuedSpansAreExportedAtExit(): void
     {
         [$stdout, $stderr, $code] = self::run('ok');
@@ -54,7 +58,18 @@ final class ExitWithoutFinalizeTest
             );
             \assert(\is_resource($process));
             \fclose($pipes[0]);
-            $code = \proc_close($process);
+            $deadline = \microtime(true) + self::TIMEOUT;
+            while (($status = \proc_get_status($process))['running']) {
+                if (\microtime(true) > $deadline) {
+                    \proc_terminate($process);
+                    \proc_close($process);
+                    Assert::fail(\sprintf('The child process did not exit within %d s.', self::TIMEOUT));
+                }
+                \usleep(20_000);
+            }
+            # Only the first status call after the exit carries the code; proc_close() would return -1.
+            $code = $status['exitcode'];
+            \proc_close($process);
 
             return [\preg_split('/\R/', \trim((string) \file_get_contents($out))), (string) \file_get_contents($err), $code];
         } finally {

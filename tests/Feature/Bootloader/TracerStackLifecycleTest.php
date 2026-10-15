@@ -164,7 +164,7 @@ final class TracerStackLifecycleTest extends TestCase
         }
 
         Assert::same($afterRequest, [
-            'error: Unable to flush spans; the exception reporter failed too: Reporter failed [Exporter failed]',
+            'error: Unable to export spans; could not report the failure: Reporter failed [Exporter failed]',
         ]);
     }
 
