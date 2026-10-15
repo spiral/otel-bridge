@@ -238,7 +238,6 @@ final class AttributesTest extends TestCase
     #[DataSet([['a', ["\xFF"]]], 'nested list with invalid UTF-8')]
     #[DataSet([['k' => ["\xFF"]]], 'map with nested invalid UTF-8')]
     #[DataSet([['a', [\NAN]]], 'nested NaN')]
-    #[Skip('Known issue: a value json_encode() fails on becomes false or drops the attribute, see https://github.com/spiral/otel-bridge/issues/24')]
     public function unencodableValueArrivesAsString(mixed $value): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('value', $value));

@@ -151,10 +151,21 @@ final class Tracer extends AbstractTracer
         return match (true) {
             $value === null || \is_scalar($value) => $value,
             $value instanceof \Stringable => $value->__toString(),
-            \is_array($value) || $value instanceof \JsonSerializable => \json_encode($value),
+            \is_array($value) || $value instanceof \JsonSerializable => self::encodeJson($value),
             \is_object($value) => $value::class,
             default => \get_debug_type($value),
         };
+    }
+
+    /**
+     * Encode to JSON, replacing what cannot be encoded instead of failing: invalid UTF-8 becomes U+FFFD,
+     * NAN and INF become 0. Falls back to the value's type when nothing can be encoded (e.g. too deep).
+     */
+    private static function encodeJson(array|\JsonSerializable $value): string
+    {
+        $json = \json_encode($value, \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return $json === false ? \get_debug_type($value) : $json;
     }
 
     /**
