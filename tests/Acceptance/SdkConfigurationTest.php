@@ -157,7 +157,6 @@ final class SdkConfigurationTest extends TestCase
      * AlwaysOn ignores the parent's decision, so an unsampled remote parent does not stop the span.
      */
     #[Env('OTEL_TRACES_SAMPLER', 'always_on')]
-    #[Skip('Known issue: OTEL_TRACES_SAMPLER is ignored, the sampler is always parentbased_always_on, see https://github.com/spiral/otel-bridge/issues/28')]
     public function alwaysOnSamplerSamplesUnderUnsampledRemoteParent(): void
     {
         $this->tracerWithContext(['traceparent' => self::UNSAMPLED_TRACEPARENT])->trace('continued', static fn() => null);
@@ -172,7 +171,6 @@ final class SdkConfigurationTest extends TestCase
      * https://opentelemetry.io/docs/specs/otel/trace/sdk/#alwaysoff
      */
     #[Env('OTEL_TRACES_SAMPLER', 'always_off')]
-    #[Skip('Known issue: OTEL_TRACES_SAMPLER is ignored, the sampler is always parentbased_always_on, see https://github.com/spiral/otel-bridge/issues/28')]
     public function alwaysOffSamplerExportsNothing(): void
     {
         $this->traceRoots(5);
@@ -195,7 +193,6 @@ final class SdkConfigurationTest extends TestCase
 
     #[Env('OTEL_TRACES_SAMPLER', 'traceidratio')]
     #[Env('OTEL_TRACES_SAMPLER_ARG', '0')]
-    #[Skip('Known issue: OTEL_TRACES_SAMPLER is ignored, the sampler is always parentbased_always_on, see https://github.com/spiral/otel-bridge/issues/28')]
     public function traceIdRatioOfZeroExportsNothing(): void
     {
         $this->traceRoots(20);
@@ -241,7 +238,6 @@ final class SdkConfigurationTest extends TestCase
     }
 
     #[Env('OTEL_TRACES_SAMPLER', 'parentbased_always_off')]
-    #[Skip('Known issue: OTEL_TRACES_SAMPLER is ignored, the sampler is always parentbased_always_on, see https://github.com/spiral/otel-bridge/issues/28')]
     public function parentBasedAlwaysOffDropsRootSpans(): void
     {
         $this->traceRoots(5);
@@ -251,7 +247,6 @@ final class SdkConfigurationTest extends TestCase
 
     #[Env('OTEL_TRACES_SAMPLER', 'parentbased_traceidratio')]
     #[Env('OTEL_TRACES_SAMPLER_ARG', '0')]
-    #[Skip('Known issue: OTEL_TRACES_SAMPLER is ignored, the sampler is always parentbased_always_on, see https://github.com/spiral/otel-bridge/issues/28')]
     public function parentBasedRatioOfZeroDropsRootSpans(): void
     {
         $this->traceRoots(5);

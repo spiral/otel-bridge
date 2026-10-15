@@ -310,7 +310,6 @@ final class ExporterLifecycleTest extends TestCase
      * https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration
      */
     #[Env('OTEL_SDK_DISABLED', 'true')]
-    #[Skip('Known issue: OTEL_SDK_DISABLED=true is ignored and spans are still exported, see https://github.com/spiral/otel-bridge/issues/25')]
     public function disabledSdkExportsNothing(): void
     {
         $this->traceSpans();
