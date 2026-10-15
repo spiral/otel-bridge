@@ -110,7 +110,6 @@ final class ExporterLifecycleTest extends TestCase
     }
 
     #[Env('OTEL_TRACES_EXPORTER', 'none')]
-    #[Skip('Known issue: OTEL_TRACES_EXPORTER=none logs an export error per span, see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneReportsNothingWithSimpleProcessor(): void
     {
         $this->traceSpans();
@@ -120,7 +119,6 @@ final class ExporterLifecycleTest extends TestCase
 
     #[Env('OTEL_TRACES_EXPORTER', 'none')]
     #[Env('OTEL_PHP_TRACES_PROCESSOR', 'batch')]
-    #[Skip('Known issue: OTEL_TRACES_EXPORTER=none logs an export error per batch, see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneReportsNothingWithBatchProcessor(): void
     {
         $this->traceSpans();
@@ -140,7 +138,6 @@ final class ExporterLifecycleTest extends TestCase
     #[DataSet([TracerProviderInterface::class, 'shutdown'], 'provider shutdown')]
     #[DataSet([SpanProcessorInterface::class, 'forceFlush'], 'processor forceFlush')]
     #[DataSet([SpanProcessorInterface::class, 'shutdown'], 'processor shutdown')]
-    #[Skip('Known issue: with OTEL_TRACES_EXPORTER=none forceFlush and shutdown return false, see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneFlushAndShutdownSucceedWithSimpleProcessor(string $service, string $method): void
     {
         $this->traceSpans();
@@ -156,7 +153,6 @@ final class ExporterLifecycleTest extends TestCase
     #[DataSet([TracerProviderInterface::class, 'shutdown'], 'provider shutdown')]
     #[DataSet([SpanProcessorInterface::class, 'forceFlush'], 'processor forceFlush')]
     #[DataSet([SpanProcessorInterface::class, 'shutdown'], 'processor shutdown')]
-    #[Skip('Known issue: with OTEL_TRACES_EXPORTER=none forceFlush and shutdown return false, see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneFlushAndShutdownSucceedWithBatchProcessor(string $service, string $method): void
     {
         $this->traceSpans();
@@ -170,7 +166,6 @@ final class ExporterLifecycleTest extends TestCase
      * The per-request flush of #10, wired as a finalizer, on a worker with tracing turned off.
      */
     #[Env('OTEL_TRACES_EXPORTER', 'none')]
-    #[Skip('Known issue: OTEL_TRACES_EXPORTER=none fails the flush and logs errors, see https://github.com/spiral/otel-bridge/issues/21')]
     public function noneKeepsFinalizerFlushSilent(): void
     {
         $flushes = $this->flushOnFinalize();
@@ -211,7 +206,6 @@ final class ExporterLifecycleTest extends TestCase
     #[DataSet([TracerProviderInterface::class, 'shutdown', null], 'provider shutdown')]
     #[DataSet([SpanProcessorInterface::class, 'forceFlush', false], 'processor forceFlush')]
     #[DataSet([SpanProcessorInterface::class, 'shutdown', null], 'processor shutdown')]
-    #[Skip('Known issue: an unknown exporter makes forceFlush and shutdown throw, see https://github.com/spiral/otel-bridge/issues/21')]
     public function unknownExporterNeverThrowsFromFlushOrShutdownWithSimpleProcessor(
         string $service,
         string $method,
@@ -230,7 +224,6 @@ final class ExporterLifecycleTest extends TestCase
     #[DataSet([TracerProviderInterface::class, 'shutdown', null], 'provider shutdown')]
     #[DataSet([SpanProcessorInterface::class, 'forceFlush', false], 'processor forceFlush')]
     #[DataSet([SpanProcessorInterface::class, 'shutdown', null], 'processor shutdown')]
-    #[Skip('Known issue: an unknown exporter makes forceFlush and shutdown throw, see https://github.com/spiral/otel-bridge/issues/21')]
     public function unknownExporterNeverThrowsFromFlushOrShutdownWithBatchProcessor(
         string $service,
         string $method,
@@ -250,7 +243,6 @@ final class ExporterLifecycleTest extends TestCase
     #[Env('OTEL_TRACES_EXPORTER', 'otlp,memory')]
     #[DataSet(['forceFlush', false], 'forceFlush')]
     #[DataSet(['shutdown', null], 'shutdown')]
-    #[Skip('Known issue: an exporter list makes forceFlush and shutdown throw, see https://github.com/spiral/otel-bridge/issues/21')]
     public function exporterListNeverThrowsFromFlushOrShutdown(string $method, ?bool $expected): void
     {
         $this->traceSpans();
@@ -264,7 +256,6 @@ final class ExporterLifecycleTest extends TestCase
      * A misconfigured exporter must not crash the worker after every request once #10 flushes in a finalizer.
      */
     #[Env('OTEL_TRACES_EXPORTER', 'bogus')]
-    #[Skip('Known issue: an unknown exporter makes the finalizer flush throw, see https://github.com/spiral/otel-bridge/issues/21')]
     public function unknownExporterNeverThrowsFromFinalizerFlush(): void
     {
         $this->flushOnFinalize();

@@ -80,19 +80,39 @@ final class DeferredSpanExporterTest
         Assert::true($result);
     }
 
-    public function exportedFutureFailsWithoutConfiguredExporter(): never
+    public function exportSucceedsWithoutConfiguredExporter(): void
     {
         $this->factory->allows('create')->with(Argument::none())->returns(null);
+
+        $exported = $this->exporter->export(['foo'])->await();
+
+        Assert::true($exported);
+    }
+
+    public function shutdownAndForceFlushSucceedWithoutConfiguredExporter(): void
+    {
+        $this->factory->allows('create')->with(Argument::none())->returns(null);
+
+        $flushed = $this->exporter->forceFlush();
+        $shutDown = $this->exporter->shutdown();
+
+        Assert::true($flushed);
+        Assert::true($shutDown);
+    }
+
+    public function exportedFutureFailsWithFactoryError(): never
+    {
+        $this->factory->allows('create')->with(Argument::none())->throws(new \RuntimeException('Unknown exporter.'));
         $future = $this->exporter->export(['foo']);
 
-        Expect::exception(\BadMethodCallException::class)->withMessageContaining('Exporter is not initialized.');
+        Expect::exception(\RuntimeException::class)->withMessage('Unknown exporter.');
 
         $future->await();
     }
 
-    public function shutdownAndForceFlushFailWithoutConfiguredExporter(): void
+    public function shutdownAndForceFlushFailWithoutThrowingOnFactoryError(): void
     {
-        $this->factory->allows('create')->with(Argument::none())->returns(null);
+        $this->factory->allows('create')->with(Argument::none())->throws(new \RuntimeException('Unknown exporter.'));
 
         $flushed = $this->exporter->forceFlush();
         $shutDown = $this->exporter->shutdown();

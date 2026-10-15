@@ -5,14 +5,22 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry\Trace;
 
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
+use OpenTelemetry\SDK\Common\Future\CompletedFuture;
 use OpenTelemetry\SDK\Common\Future\ErrorFuture;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 
+/**
+ * Creates the exporter on first use and remembers the outcome: an exporter, `null` for
+ * `OTEL_TRACES_EXPORTER=none`, which makes every call a successful no-op, or the factory error,
+ * which fails every export and makes flush and shutdown report `false`.
+ */
 final class DeferredSpanExporter implements SpanExporterInterface
 {
+    private bool $resolved = false;
     private ?SpanExporterInterface $exporter = null;
+    private ?\Throwable $error = null;
 
     public function __construct(
         private readonly ExporterFactory $exporterFactory,
@@ -32,32 +40,42 @@ final class DeferredSpanExporter implements SpanExporterInterface
     #[\Override]
     public function export(iterable $batch, ?CancellationInterface $cancellation = null): FutureInterface
     {
-        $exporter = $this->getExporter();
-        if ($exporter !== null) {
-            return $exporter->export($batch, $cancellation);
-        }
+        $this->resolve();
 
-        return new ErrorFuture(new \BadMethodCallException('Exporter is not initialized.'));
+        return match (true) {
+            $this->exporter !== null => $this->exporter->export($batch, $cancellation),
+            $this->error !== null => new ErrorFuture($this->error),
+            default => new CompletedFuture(true),
+        };
     }
 
     #[\Override]
     public function shutdown(?CancellationInterface $cancellation = null): bool
     {
-        return (bool) $this->getExporter()?->shutdown($cancellation);
+        $this->resolve();
+
+        return $this->exporter?->shutdown($cancellation) ?? $this->error === null;
     }
 
     #[\Override]
     public function forceFlush(?CancellationInterface $cancellation = null): bool
     {
-        return (bool) $this->getExporter()?->forceFlush($cancellation);
+        $this->resolve();
+
+        return $this->exporter?->forceFlush($cancellation) ?? $this->error === null;
     }
 
-    private function getExporter(): ?SpanExporterInterface
+    private function resolve(): void
     {
-        if ($this->exporter === null) {
-            $this->exporter = $this->exporterFactory->create();
+        if ($this->resolved) {
+            return;
         }
 
-        return $this->exporter;
+        $this->resolved = true;
+        try {
+            $this->exporter = $this->exporterFactory->create();
+        } catch (\Throwable $e) {
+            $this->error = $e;
+        }
     }
 }
