@@ -16,7 +16,6 @@ use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Lifecycle\AfterTest;
 use Testo\Lifecycle\BeforeTest;
-use Testo\Skip;
 use Testo\Test;
 
 /**

@@ -11,7 +11,6 @@ use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**

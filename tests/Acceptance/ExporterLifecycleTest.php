@@ -14,7 +14,6 @@ use Testo\Assert;
 use Testo\Data\DataSet;
 use Testo\Lifecycle\AfterTest;
 use Testo\Lifecycle\BeforeTest;
-use Testo\Skip;
 use Testo\Test;
 
 /**
