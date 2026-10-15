@@ -14,11 +14,14 @@ use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\JsonValue;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\ThrowingJson;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
 use Testo\Assert;
 use Testo\Codecov\Covers;
+use Testo\Data\DataProvider;
 use Testo\Data\DataSet;
 use Testo\Expect;
 use Testo\Lifecycle\BeforeTest;
@@ -94,6 +97,30 @@ final class TracerExportTest
         Assert::same($attributes['object'], \stdClass::class);
         Assert::same($attributes['stringable'], 'text');
         Assert::same($attributes['json'], '{"a":1}');
+    }
+
+    public static function structuredValues(): iterable
+    {
+        $recursive = [1];
+        $recursive[] = &$recursive;
+
+        yield 'invalid UTF-8' => [['a', ["\xFF"]], ['a', '["\ufffd"]']];
+        yield 'non-finite floats' => [['a', [\NAN, \INF, -\INF, 1.5]], ['a', '["NaN","Infinity","-Infinity",1.5]']];
+        yield 'map with null' => [new JsonValue(['k' => ["\xFF"], 'n' => null]), '{"k":["\ufffd"],"n":null}'];
+        yield 'nested JsonSerializable' => [new JsonValue([new JsonValue(\NAN)]), '["NaN"]'];
+        yield 'recursive array' => [['a', $recursive], ['a', 'array']];
+        yield 'resource inside' => [['a', [\fopen('php://memory', 'rb')]], ['a', 'array']];
+        yield 'throwing jsonSerialize()' => [new ThrowingJson(), ThrowingJson::class];
+    }
+
+    #[DataProvider('structuredValues')]
+    public function structuredAttributeIsEncodedAsJson(mixed $value, string|array $expected): void
+    {
+        $span = $this->traceOne(static fn(SpanInterface $span) => $span->setAttribute('value', $value));
+
+        Assert::same($span->getAttributes()->toArray(), ['value' => $expected]);
+        Assert::same($span->getAttributes()->getDroppedAttributesCount(), 0);
+        Assert::count($span->getEvents(), 0);
     }
 
     public function resourceAttributeIsDescribedByType(): void

@@ -231,20 +231,18 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * Invalid UTF-8 cannot be put into JSON without loss; what is checked is that the value is not
-     * turned into `false` or dropped.
+     * What json_encode() cannot encode is replaced as the OTel spec prescribes for a non-OTLP AnyValue:
+     * invalid UTF-8 with U+FFFD, NaN with the JSON string "NaN".
      */
-    #[DataSet([new AttributesJson(["\xFF"])], 'JsonSerializable with invalid UTF-8')]
-    #[DataSet([['a', ["\xFF"]]], 'nested list with invalid UTF-8')]
-    #[DataSet([['k' => ["\xFF"]]], 'map with nested invalid UTF-8')]
-    #[DataSet([['a', [\NAN]]], 'nested NaN')]
-    public function unencodableValueArrivesAsString(mixed $value): void
+    #[DataSet([new AttributesJson(["\xFF"]), '["\ufffd"]'], 'JsonSerializable with invalid UTF-8')]
+    #[DataSet([['a', ["\xFF"]], ['a', '["\ufffd"]']], 'nested list with invalid UTF-8')]
+    #[DataSet([['k' => ["\xFF"]], ['k' => '["\ufffd"]']], 'map with nested invalid UTF-8')]
+    #[DataSet([['a', [\NAN]], ['a', '["NaN"]']], 'nested NaN')]
+    public function unencodableValueArrivesAsJsonWithReplacements(mixed $value, string|array $expected): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setAttribute('value', $value));
 
-        $received = $this->received();
-        Assert::true(\array_key_exists('value', $received), 'The attribute was dropped.');
-        Assert::true(self::containsNoBool($received['value']), 'Received ' . self::export($received['value']));
+        $this->assertReceived(['value' => $expected]);
     }
 
     /**
@@ -488,15 +486,6 @@ final class AttributesTest extends TestCase
         }
 
         return true;
-    }
-
-    private static function containsNoBool(mixed $value): bool
-    {
-        return match (true) {
-            \is_bool($value) => false,
-            \is_array($value) => \array_filter($value, static fn(mixed $item): bool => !self::containsNoBool($item)) === [],
-            default => true,
-        };
     }
 
     private static function export(mixed $value): string

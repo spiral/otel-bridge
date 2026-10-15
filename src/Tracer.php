@@ -19,6 +19,9 @@ use Spiral\Telemetry\TraceKind;
 
 final class Tracer extends AbstractTracer
 {
+    /** The json_encode() default. */
+    private const JSON_DEPTH = 512;
+
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
     private readonly TracestateGetter $getter;
 
@@ -158,14 +161,44 @@ final class Tracer extends AbstractTracer
     }
 
     /**
-     * Encode to JSON, replacing what cannot be encoded instead of failing: invalid UTF-8 becomes U+FFFD,
-     * NAN and INF become 0. Falls back to the value's type when nothing can be encoded (e.g. too deep).
+     * Encode a structured value to the JSON string the OTel spec prescribes for an AnyValue in a non-OTLP
+     * representation: lists become arrays, maps become objects, null becomes `null`, non-finite floats become
+     * the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, and invalid UTF-8 is replaced with U+FFFD.
+     *
+     * Never fails: a value that cannot be encoded (a resource or a recursive or too deep structure inside,
+     * or a throwing jsonSerialize()) becomes its type, e.g. `array` or the class name.
      */
     private static function encodeJson(array|\JsonSerializable $value): string
     {
-        $json = \json_encode($value, \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_PARTIAL_OUTPUT_ON_ERROR);
+        try {
+            $json = \json_encode(self::prepareJson($value, self::JSON_DEPTH), \JSON_INVALID_UTF8_SUBSTITUTE, self::JSON_DEPTH);
+        } catch (\Throwable) {
+            # jsonSerialize() is user code, and the attributes are set after the callback has already succeeded.
+            $json = false;
+        }
 
         return $json === false ? \get_debug_type($value) : $json;
+    }
+
+    /**
+     * Resolve JsonSerializable values and replace non-finite floats, which json_encode() rejects.
+     *
+     * @throws \JsonException when the nesting exceeds $depth, which also stops a recursive array.
+     */
+    private static function prepareJson(mixed $value, int $depth): mixed
+    {
+        if ($depth < 0) {
+            throw new \JsonException('Maximum stack depth exceeded.');
+        }
+
+        return match (true) {
+            $value instanceof \JsonSerializable => self::prepareJson($value->jsonSerialize(), $depth - 1),
+            \is_array($value) => \array_map(static fn(mixed $item): mixed => self::prepareJson($item, $depth - 1), $value),
+            \is_float($value) && \is_nan($value) => 'NaN',
+            $value === \INF => 'Infinity',
+            $value === -\INF => '-Infinity',
+            default => $value,
+        };
     }
 
     /**
