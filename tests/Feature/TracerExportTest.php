@@ -157,6 +157,19 @@ final class TracerExportTest
         Assert::same($tracer->getContext()['tracestate'] ?? null, 'vendor=value');
     }
 
+    public function severalTraceStateFieldsAreCombined(): void
+    {
+        $tracer = $this->createTracer([
+            'traceparent' => [self::TRACEPARENT],
+            'tracestate' => ['a=1', 'b=2'],
+        ]);
+
+        $tracer->trace('test', static fn() => null);
+
+        Assert::same((string) $this->exporter->getSpans()[0]->getContext()->getTraceState(), 'a=1,b=2');
+        Assert::same($tracer->getContext()['tracestate'] ?? null, 'a=1,b=2');
+    }
+
     public function propagatedContextBecomesParent(): void
     {
         $span = $this->traceOne(
