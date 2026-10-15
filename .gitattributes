@@ -18,6 +18,3 @@
 # Autoloaded source code.
 /src             -export-ignore
 /src/**          -export-ignore
-
-# dev config
-/structarmed.php export-ignore
