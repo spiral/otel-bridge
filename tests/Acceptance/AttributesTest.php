@@ -333,7 +333,7 @@ final class AttributesTest extends TestCase
             $span->setAttribute('multibyte', 'приветмир');
             $span->setAttribute('short', 'abc');
             $span->setAttribute('list', ['abcdefgh', 'xy']);
-            $span->setAttribute('int', 1234567);
+            $span->setAttribute('int', 1_234_567);
             $span->setAttribute('bool', true);
         }, attributes: ['start' => 'abcdefgh']);
 
@@ -343,7 +343,7 @@ final class AttributesTest extends TestCase
             'multibyte' => 'приве',
             'short' => 'abc',
             'list' => ['abcde', 'xy'],
-            'int' => 1234567,
+            'int' => 1_234_567,
             'bool' => true,
         ]);
     }
