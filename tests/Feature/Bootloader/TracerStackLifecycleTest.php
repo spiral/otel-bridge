@@ -16,6 +16,7 @@ use Spiral\Core\Container;
 use Spiral\Core\Scope;
 use Spiral\Exceptions\ExceptionReporterInterface;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
+use Spiral\OpenTelemetry\Trace\TracerProviderFinalizer;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\RecordingSpanExporter;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Testo\Assert;
@@ -30,10 +31,9 @@ use Testo\Test;
  */
 #[Test]
 #[Covers(OpenTelemetryBootloader::class)]
+#[Covers(TracerProviderFinalizer::class)]
 final class TracerStackLifecycleTest extends TestCase
 {
-    private ?RecordingSpanExporter $exporter = null;
-
     /**
      * Resolved first in a request scope, the way an HTTP app meets the tracer, and then in the root.
      */
@@ -120,7 +120,7 @@ final class TracerStackLifecycleTest extends TestCase
     }
 
     /**
-     * A `false` result is a failed export, which the SDK has logged already.
+     * `false` is not worth a report: failed exports are logged by the SDK.
      */
     #[DataSet([false], 'request end')]
     #[DataSet([true], 'termination')]
@@ -156,26 +156,67 @@ final class TracerStackLifecycleTest extends TestCase
         try {
             $this->startSpan('request');
             $this->finalizer()->finalize(false);
+            $afterRequest = $log->entries;
+            # While the log is still captured: the app lives to the end of the process otherwise.
+            $this->finalizer()->finalize(true);
         } finally {
             Logging::reset();
         }
 
-        Assert::same($log->entries, ['error: Unable to report a span flush failure [Reporter failed]']);
+        Assert::same($afterRequest, [
+            'error: Unable to flush spans; the exception reporter failed too: Reporter failed [Exporter failed]',
+        ]);
     }
 
     /**
-     * spiral/testing keeps the kernel to the end of the process, whose destructor runs finalize(true)
-     * once more, with nobody capturing what fails there.
+     * A reporter that needs the tracer can be bound: it is resolved only once there is a failure to report.
+     */
+    public function reporterMayDependOnTracer(): void
+    {
+        $failure = new \RuntimeException('Exporter failed');
+        $this->useExporter(new RecordingSpanExporter($failure));
+        $reporter = $this->reporter();
+        $this->getContainer()->bindSingleton(
+            ExceptionReporterInterface::class,
+            static fn(TracerInterface $tracer): ExceptionReporterInterface => $reporter,
+        );
+
+        $this->startSpan('request');
+        $this->finalizer()->finalize(false);
+
+        Assert::same($reporter->reported, [$failure]);
+    }
+
+    /**
+     * The provider is first built inside a request scope, which is gone by the time the failure is reported.
+     */
+    public function failureIsReportedAfterScopeOfFirstUseEnds(): void
+    {
+        $failure = new \RuntimeException('Exporter failed');
+        $this->useExporter(new RecordingSpanExporter($failure));
+        $reporter = $this->useReporter();
+
+        $this->getContainer()->runScope(new Scope('http'), static fn(Container $http): mixed => $http->runScope(
+            new Scope('http.request'),
+            static fn(TracerInterface $tracer) => $tracer->spanBuilder('request')->startSpan()->end(),
+        ));
+        $this->finalizer()->finalize(false);
+
+        Assert::same($reporter->reported, [$failure]);
+    }
+
+    /**
+     * Terminates the app as the kernel does. spiral/testing leaves the kernel to the garbage collector,
+     * which clears the bindings, the bound reporter among them, before the kernel destructor runs.
      */
     #[AfterTest]
-    public function calmExporter(): void
+    public function terminate(): void
     {
-        $this->exporter === null or $this->exporter->result = true;
+        $this->finalizer()->finalize(true);
     }
 
     private function useExporter(RecordingSpanExporter $exporter): RecordingSpanExporter
     {
-        $this->exporter = $exporter;
         $container = $this->getContainer();
         $container->bindSingleton(SpanExporterInterface::class, $exporter);
         $container->bindSingleton(SpanProcessorInterface::class, BatchSpanProcessor::builder($exporter)->build());
@@ -183,12 +224,20 @@ final class TracerStackLifecycleTest extends TestCase
         return $exporter;
     }
 
-    /**
-     * Binds a reporter that keeps what it gets, or throws `$failure` when given one.
-     */
     private function useReporter(?\Throwable $failure = null): object
     {
-        $reporter = new class($failure) implements ExceptionReporterInterface {
+        $reporter = $this->reporter($failure);
+        $this->getContainer()->bindSingleton(ExceptionReporterInterface::class, $reporter);
+
+        return $reporter;
+    }
+
+    /**
+     * A reporter that keeps what it gets, or throws `$failure` when given one.
+     */
+    private function reporter(?\Throwable $failure = null): object
+    {
+        return new class($failure) implements ExceptionReporterInterface {
             /** @var list<\Throwable> */
             public array $reported = [];
 
@@ -203,9 +252,6 @@ final class TracerStackLifecycleTest extends TestCase
                 $this->reported[] = $exception;
             }
         };
-        $this->getContainer()->bindSingleton(ExceptionReporterInterface::class, $reporter);
-
-        return $reporter;
     }
 
     private function startSpan(string $name): void

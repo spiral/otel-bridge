@@ -17,7 +17,7 @@ use OpenTelemetry\SDK\Trace\Tracer;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Spiral\Boot\Finalizer;
-use Spiral\Exceptions\ExceptionReporterInterface;
+use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
@@ -60,7 +60,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
         [$processor, $provider] = self::withProcessEnv(['OTEL_SDK_DISABLED' => 'true'], static function () use ($bootloader, $finalizer): array {
             $processor = $bootloader->initSpanProcessor($bootloader->initSpanExporter());
 
-            return [$processor, $bootloader->initTraceProvider($processor, $finalizer, self::reporter())];
+            return [$processor, $bootloader->initTraceProvider($processor, $finalizer, new Container())];
         });
         $finalizer->finalize(false);
         $finalizer->finalize(true);
@@ -117,18 +117,10 @@ final class OpenTelemetryBootloaderTest extends TestCase
     private static function startSpan(OpenTelemetryBootloader $bootloader): SpanInterface
     {
         return $bootloader
-            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), self::reporter())
+            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), new Container())
             ->getTracer('test')
             ->spanBuilder('root')
             ->startSpan();
-    }
-
-    private static function reporter(): ExceptionReporterInterface
-    {
-        return new class implements ExceptionReporterInterface {
-            #[\Override]
-            public function report(\Throwable $exception): void {}
-        };
     }
 
     /**

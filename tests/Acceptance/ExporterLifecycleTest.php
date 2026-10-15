@@ -165,6 +165,7 @@ final class ExporterLifecycleTest extends TestCase
         $this->traceSpans();
         $finalizer->finalize(terminate: true);
 
+        Assert::false($this->processor()->shutdown(), 'The finalizer must have shut the processor down.');
         $this->assertNoProblems();
         $this->assertNothingArrives();
     }
@@ -252,10 +253,13 @@ final class ExporterLifecycleTest extends TestCase
     {
         $finalizer = $this->getContainer()->get(FinalizerInterface::class);
         $this->traceSpans();
+        $queued = $this->log->problems();
 
         $thrown = self::rescue(static fn() => $finalizer->finalize($terminate));
 
         Assert::null($thrown, $thrown instanceof \Throwable ? $thrown::class . ": {$thrown->getMessage()}" : '');
+        Assert::same($queued, []);
+        Assert::true($this->log->problems() !== [], 'The finalizer must export the queued spans, and fail.');
     }
 
     /**

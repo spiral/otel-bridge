@@ -19,12 +19,13 @@ use OpenTelemetry\SDK\Trace\SpanProcessorFactory;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
+use Psr\Container\ContainerInterface;
 use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\EnvironmentInterface;
 use Spiral\Boot\FinalizerInterface;
-use Spiral\Exceptions\ExceptionReporterInterface;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
+use Spiral\OpenTelemetry\Trace\TracerProviderFinalizer;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
 use Spiral\Telemetry\ClockInterface;
@@ -82,13 +83,13 @@ final class OpenTelemetryBootloader extends Bootloader
 
     /**
      * Built on first use, so finalizing an app that never traced builds nothing. From then on the
-     * provider is flushed when each request or job ends and shut down with the app: the batch
-     * processor exports a partial batch on nothing else.
+     * provider is flushed when each request or job ends and shut down with the app; otherwise the
+     * batch processor never exports a partial batch.
      */
     public function initTraceProvider(
         SpanProcessorInterface $spanProcessor,
         FinalizerInterface $finalizer,
-        ExceptionReporterInterface $reporter,
+        ContainerInterface $container,
     ): TracerProviderInterface {
         if (Sdk::isDisabled()) {
             return new NoopTracerProvider();
@@ -102,31 +103,12 @@ final class OpenTelemetryBootloader extends Bootloader
         }
 
         $provider = new TracerProvider($spanProcessor, $sampler);
-        $finalizer->addFinalizer(static function (bool $terminate) use ($provider, $reporter): void {
-            # Shutdown closes the processor for good, so the end of a request only flushes.
-            # A `false` result is left alone: the SDK has already logged the failed export.
-            try {
-                $terminate ? $provider->shutdown() : $provider->forceFlush();
-            } catch (\Throwable $e) {
-                self::report($reporter, $e);
-            }
-        });
-        # After a fatal error the kernel never calls finalize(true).
-        ShutdownHandler::register($provider->shutdown(...));
+        $providerFinalizer = new TracerProviderFinalizer($provider, $container);
+        # At exit PHP runs shutdown functions before the kernel destructor calls finalize(true), and after
+        # a fatal error only them. The reference is weak: an app already destroyed is not shut down twice.
+        ShutdownHandler::register($providerFinalizer->shutdown(...));
+        $finalizer->addFinalizer($providerFinalizer);
 
         return $provider;
-    }
-
-    /**
-     * Flushing runs inside the request and kernel lifecycle, which must not break, not even when the
-     * reporter fails.
-     */
-    private static function report(ExceptionReporterInterface $reporter, \Throwable $e): void
-    {
-        try {
-            $reporter->report($e);
-        } catch (\Throwable $reporterError) {
-            self::logError('Unable to report a span flush failure', ['exception' => $reporterError]);
-        }
     }
 }
