@@ -4,6 +4,7 @@
         "directories": ["src"]
     },
     "testFramework": "testo",
+    "testFrameworkOptions": "--config=tools/infection/testo.php",
     "tmpDir": "runtime",
     "timeout": 10,
     "logs": {
