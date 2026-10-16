@@ -31,6 +31,7 @@ final readonly class ReceivedSpan
     public function __construct(
         public array $resourceAttributes,
         public string $scopeName,
+        public string $scopeVersion,
         public string $traceId,
         public string $spanId,
         public ?string $parentSpanId,
@@ -57,6 +58,7 @@ final readonly class ReceivedSpan
         return new self(
             resourceAttributes: (array) ($resourceSpans['resource']['attributes'] ?? []),
             scopeName: (string) ($scopeSpans['scope']['name'] ?? ''),
+            scopeVersion: (string) ($scopeSpans['scope']['version'] ?? ''),
             traceId: (string) $span['traceId'],
             spanId: (string) $span['spanId'],
             parentSpanId: isset($span['parentSpanId']) ? (string) $span['parentSpanId'] : null,

@@ -21,8 +21,8 @@ use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Psr\Container\ContainerInterface;
 use Spiral\Boot\Bootloader\Bootloader;
-use Spiral\Boot\EnvironmentInterface;
 use Spiral\Boot\FinalizerInterface;
+use Spiral\OpenTelemetry\InstrumentationScope;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\Trace\TracerProviderFinalizer;
@@ -48,13 +48,9 @@ final class OpenTelemetryBootloader extends Bootloader
         $telemetry->registerTracer('otel', TracerFactory::class);
     }
 
-    public function initTracer(
-        EnvironmentInterface $env,
-        TracerProviderInterface $tracerProvider,
-    ): TracerInterface {
-        return $tracerProvider->getTracer(
-            (string) $env->get('OTEL_SERVICE_NAME', 'Spiral Framework'),
-        );
+    public function initTracer(TracerProviderInterface $tracerProvider): TracerInterface
+    {
+        return $tracerProvider->getTracer(InstrumentationScope::NAME, InstrumentationScope::version());
     }
 
     /**

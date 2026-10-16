@@ -18,3 +18,7 @@
 # Autoloaded source code.
 /src             -export-ignore
 /src/**          -export-ignore
+
+# The release manifest: the version reported as the instrumentation scope version.
+/resources                -export-ignore
+/resources/version.json   -export-ignore

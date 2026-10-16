@@ -23,5 +23,5 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .github/.release-please-config.json
-          manifest-file: .github/version.json
+          manifest-file: resources/version.json
           target-branch: master
