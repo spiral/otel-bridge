@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry;
 
+use OpenTelemetry\API\Baggage\Baggage;
 use OpenTelemetry\API\Trace\Span as OtelSpan;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
+use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Attribute\Proxy;
 use Spiral\Core\ScopeInterface;
@@ -36,6 +38,7 @@ final class Tracer extends AbstractTracer
     private array $running = [];
 
     private ?\OpenTelemetry\API\Trace\SpanInterface $lastRoot = null;
+    private ?ContextInterface $incoming = null;
     private readonly TracestateGetter $getter;
 
     public function __construct(
@@ -111,11 +114,24 @@ final class Tracer extends AbstractTracer
             return $this->context;
         }
 
+        # The incoming baggage goes on with the trace, unless the code has activated baggage of its own.
+        if ($this->context !== [] && Baggage::fromContext($current)->isEmpty()) {
+            $current = Baggage::fromContext($this->incoming())->storeInContext($current);
+        }
+
         $carrier = [];
         $this->propagator->inject($carrier, null, $span->storeInContext($current));
 
         /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
         return $carrier;
+    }
+
+    /**
+     * The incoming context, extracted once: an invalid header is then reported once, not on every call.
+     */
+    private function incoming(): ContextInterface
+    {
+        return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
     }
 
     /**
@@ -380,9 +396,7 @@ final class Tracer extends AbstractTracer
         # local parent; otherwise every span of the request would hang off it directly.
         $current = Context::getCurrent();
         if ($this->context !== [] && !OtelSpan::fromContext($current)->getContext()->isValid()) {
-            $spanBuilder->setParent(
-                $this->propagator->extract($this->context, $this->getter, $current),
-            );
+            $spanBuilder->setParent(OtelSpan::fromContext($this->incoming())->storeInContext($current));
         }
 
         return $spanBuilder->startSpan();

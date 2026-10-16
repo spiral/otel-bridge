@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Spiral\OpenTelemetry\Bootloader;
 
 use OpenTelemetry\API\Behavior\LogsMessagesTrait;
-use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Common\Util\ShutdownHandler;
+use OpenTelemetry\SDK\Propagation\PropagatorFactory;
 use OpenTelemetry\SDK\Sdk;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\NoopTracerProvider;
@@ -34,10 +34,8 @@ final class OpenTelemetryBootloader extends Bootloader
 {
     use LogsMessagesTrait;
 
-    protected const BINDINGS = [
-        TextMapPropagatorInterface::class => [self::class, 'initTextMapPropagator'],
-    ];
     protected const SINGLETONS = [
+        TextMapPropagatorInterface::class => [self::class, 'initTextMapPropagator'],
         TracerInterface::class => [self::class, 'initTracer'],
         TracerProviderInterface::class => [self::class, 'initTraceProvider'],
         SpanExporterInterface::class => [self::class, 'initSpanExporter'],
@@ -59,9 +57,12 @@ final class OpenTelemetryBootloader extends Bootloader
         );
     }
 
+    /**
+     * The propagators named in `OTEL_PROPAGATORS`, by default W3C Trace Context and Baggage.
+     */
     public function initTextMapPropagator(): TextMapPropagatorInterface
     {
-        return TraceContextPropagator::getInstance();
+        return (new PropagatorFactory())->create();
     }
 
     public function initSpanProcessor(

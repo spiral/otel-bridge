@@ -6,6 +6,7 @@ namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
+use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Data\DataSet;
 use Testo\Test;
@@ -313,6 +314,34 @@ final class ContextPropagationTest extends TestCase
 
         Assert::same($headers['in outer']['tracestate'] ?? null, self::TRACESTATE);
         Assert::same($headers['after outer']['tracestate'] ?? null, self::TRACESTATE);
+    }
+
+    /**
+     * `OTEL_PROPAGATORS` defaults to `tracecontext,baggage`:
+     * https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration
+     */
+    public function contextKeepsIncomingBaggage(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+        $headers = [];
+
+        $tracer->trace('outer', static function () use ($tracer, &$headers): void {
+            $headers['in outer'] = $tracer->getContext();
+        }, scoped: true);
+        $headers['after outer'] = $tracer->getContext();
+
+        Assert::same($headers['in outer']['baggage'] ?? null, 'tenant=acme');
+        Assert::same($headers['after outer']['baggage'] ?? null, 'tenant=acme');
+    }
+
+    #[Env('OTEL_PROPAGATORS', 'tracecontext')]
+    public function contextCarriesOnlyTheConfiguredPropagators(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+
+        $tracer->trace('outer', static fn() => null, scoped: true);
+
+        Assert::same(\array_keys($tracer->getContext()), ['traceparent']);
     }
 
     /**
