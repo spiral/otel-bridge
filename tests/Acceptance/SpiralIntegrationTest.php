@@ -14,7 +14,6 @@ use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
 use Spiral\Queue\QueueInterface;
 use Testo\Assert;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -108,7 +107,6 @@ final class SpiralIntegrationTest extends TestCase
      * The job has to continue the span running when it is pushed, the `HTTP Pipeline`; the job headers
      * carry a span the tracer started and ended before it.
      */
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function jobPushedByRequestHandlerContinuesSpanRunningAtPush(): void
     {
         $this->fakeHttp()->post('/orders', ['to' => 'carol@example.com'])->assertStatus(201);
@@ -155,7 +153,6 @@ final class SpiralIntegrationTest extends TestCase
      * The next hop has to continue the SERVER span; with middleware the tracer has started the
      * `HTTP Pipeline` span after it, and that is what the response carries.
      */
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function responseTraceparentBehindMiddlewarePointsToServerSpan(): void
     {
         $response = $this->fakeHttp()->get('/orders');

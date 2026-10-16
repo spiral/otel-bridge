@@ -127,7 +127,8 @@ final class SdkConfigurationTest extends TestCase
     }
 
     /**
-     * Every span the Spiral tracer makes comes from one instrumentation scope, named after the service.
+     * Every span the Spiral tracer makes comes from one instrumentation scope, the bridge package with its
+     * version: https://opentelemetry.io/docs/specs/otel/common/instrumentation-scope/
      */
     public function spansOfOneAppShareOneInstrumentationScope(): void
     {
@@ -137,8 +138,12 @@ final class SdkConfigurationTest extends TestCase
         $this->tracerWithContext(['traceparent' => self::SAMPLED_TRACEPARENT])->trace('continued', static fn() => null);
 
         $spans = $this->traces()->await(3);
-        $scopes = \array_unique(\array_map(static fn(ReceivedSpan $s): string => $s->scopeName, $spans->spans));
-        Assert::same($scopes, [$this->env('OTEL_SERVICE_NAME')]);
+        $scopes = \array_unique(\array_map(
+            static fn(ReceivedSpan $s): string => "{$s->scopeName}@{$s->scopeVersion}",
+            $spans->spans,
+        ));
+        $version = \json_decode((string) \file_get_contents(__DIR__ . '/../../resources/version.json'), true)['.'];
+        Assert::same($scopes, ["spiral/otel-bridge@{$version}"]);
     }
 
     /**

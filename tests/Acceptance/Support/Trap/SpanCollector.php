@@ -31,6 +31,9 @@ final class SpanCollector
     /** @var array<string, true> Barrier span ids seen in the dumps. */
     private array $barriers = [];
 
+    /** Export requests of the service read so far. */
+    private int $exports = 0;
+
     /**
      * @param string $endpoint Trap's OTLP/HTTP base URL, for the barrier.
      */
@@ -208,10 +211,11 @@ final class SpanCollector
             return;
         }
 
+        $export = ++$this->exports;
         foreach ((array) ($frame['resourceSpans'] ?? []) as $resourceSpans) {
             foreach ((array) ($resourceSpans['scopeSpans'] ?? []) as $scopeSpans) {
                 foreach ((array) ($scopeSpans['spans'] ?? []) as $span) {
-                    $received = ReceivedSpan::fromDump($resourceSpans, $scopeSpans, $span);
+                    $received = ReceivedSpan::fromDump($resourceSpans, $scopeSpans, $span, $export);
                     match ($received->serviceName()) {
                         $this->serviceName => $this->spans[] = $received,
                         "{$this->serviceName}.barrier" => $this->barriers[$received->spanId] = true,

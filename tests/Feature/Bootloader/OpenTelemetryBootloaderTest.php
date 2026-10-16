@@ -9,6 +9,8 @@ use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanInterface;
 use OpenTelemetry\API\Trace\TracerInterface;
+use OpenTelemetry\Context\Propagation\MultiTextMapPropagator;
+use OpenTelemetry\Context\Propagation\NoopTextMapPropagator;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Trace\NoopTracerProvider;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
@@ -35,10 +37,32 @@ final class OpenTelemetryBootloaderTest extends TestCase
     #[DataSet([TracerInterface::class, Tracer::class], 'tracer')]
     #[DataSet([TracerProviderInterface::class, TracerProvider::class], 'tracer provider')]
     #[DataSet([SpanExporterInterface::class, DeferredSpanExporter::class], 'span exporter')]
-    #[DataSet([TextMapPropagatorInterface::class, TraceContextPropagator::class], 'propagator')]
+    #[DataSet([TextMapPropagatorInterface::class, MultiTextMapPropagator::class], 'propagator')]
     public function bindsOpenTelemetryService(string $alias, string $class): void
     {
         $this->assertContainerBound($alias, $class);
+    }
+
+    public function propagatorIsSingleton(): void
+    {
+        $container = $this->getContainer();
+
+        Assert::same($container->get(TextMapPropagatorInterface::class), $container->get(TextMapPropagatorInterface::class));
+    }
+
+    #[DataSet(['tracecontext', TraceContextPropagator::class], 'one')]
+    #[DataSet(['tracecontext,baggage', MultiTextMapPropagator::class], 'several')]
+    #[DataSet(['none', NoopTextMapPropagator::class], 'none')]
+    public function propagatorComesFromEnv(string $propagators, string $class): void
+    {
+        $bootloader = new OpenTelemetryBootloader();
+
+        $propagator = self::withProcessEnv(
+            ['OTEL_PROPAGATORS' => $propagators],
+            static fn() => $bootloader->initTextMapPropagator(),
+        );
+
+        Assert::instanceOf($propagator, $class);
     }
 
     public function registersOtelTracerDriver(): void

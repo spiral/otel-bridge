@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry;
 
+use OpenTelemetry\API\Baggage\Baggage;
 use OpenTelemetry\API\Trace\Span as OtelSpan;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
+use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Attribute\Proxy;
 use Spiral\Core\ScopeInterface;
@@ -26,7 +28,17 @@ final class Tracer extends AbstractTracer
      */
     private const MAX_DEPTH = 64;
 
-    private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
+    /**
+     * The traces of this tracer that are running, innermost last, with whether each is scoped. Only
+     * {@see self::getContext()} reads it: the parent of a new span is the active one, see
+     * {@see self::getTraceSpan()}, so spans of other instrumentation nest between the bridge's own.
+     *
+     * @var list<array{\OpenTelemetry\API\Trace\SpanInterface, bool}>
+     */
+    private array $running = [];
+
+    private ?\OpenTelemetry\API\Trace\SpanInterface $lastRoot = null;
+    private ?ContextInterface $incoming = null;
     private readonly TracestateGetter $getter;
 
     public function __construct(
@@ -63,39 +75,55 @@ final class Tracer extends AbstractTracer
             $scope = $traceSpan->activate();
         }
 
+        $this->running[] = [$traceSpan, $scoped];
+        $error = null;
         try {
-            $result = $this->runScope($internalSpan, $callback);
-
-            if (($status = $internalSpan->getStatus()) !== null) {
-                $traceSpan->setStatus(self::normalizeStatusCode($status->code), $status->description);
-            }
-
-            $traceSpan->updateName($internalSpan->getName());
-            $traceSpan->setAttributes(self::normalizeAttributes($internalSpan->getAttributes()));
-
-            return $result;
+            return $this->runScope($internalSpan, $callback);
         } catch (\Throwable $e) {
             $traceSpan->recordException($e);
-            throw $e;
+            throw $error = $e;
         } finally {
+            $this->copySpan($internalSpan, $traceSpan, $traceKind, $error);
             $traceSpan->end();
             $scope?->detach();
+            \array_pop($this->running);
+            if ($this->running === []) {
+                $this->lastRoot = $traceSpan;
+            }
         }
     }
 
+    /**
+     * The headers that continue the trace where the code runs. The innermost running trace of this tracer
+     * decides: when it is scoped, the span active in the context, which may be a span created inside it by
+     * other instrumentation; otherwise the trace itself, as it is never activated. With no trace running,
+     * the last finished outermost one, then the incoming context.
+     */
     #[\Override]
     public function getContext(): array
     {
-        if ($this->lastSpan !== null) {
-            $ctx = $this->lastSpan->storeInContext(Context::getCurrent());
-            $carrier = [];
-            $this->propagator->inject($carrier, null, $ctx);
+        $top = \end($this->running);
+        $current = Context::getCurrent();
+        $span = match (true) {
+            $top === false => $this->lastRoot,
+            $top[1] && OtelSpan::fromContext($current)->getContext()->isValid() => OtelSpan::fromContext($current),
+            default => $top[0],
+        };
 
-            /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
-            return $carrier;
+        if ($span === null) {
+            return $this->context;
         }
 
-        return $this->context;
+        # The incoming baggage goes on with the trace, unless the code has activated baggage of its own.
+        if ($this->context !== [] && Baggage::fromContext($current)->isEmpty()) {
+            $current = Baggage::fromContext($this->incoming())->storeInContext($current);
+        }
+
+        $carrier = [];
+        $this->propagator->inject($carrier, null, $span->storeInContext($current));
+
+        /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
+        return $carrier;
     }
 
     /**
@@ -113,19 +141,30 @@ final class Tracer extends AbstractTracer
     }
 
     /**
+     * Ok only when asked for by name or by the OTLP enum value 1: the spec leaves Ok to an explicit choice.
+     * Any other string is Unset. An int other than 0, 1 and 2 is an HTTP status code, mapped as the HTTP
+     * conventions say: 4xx is the client's failure, so a SERVER span stays Unset on it, and a code out of
+     * the HTTP range cannot be interpreted, so it is Error.
+     *
      * @return StatusCode::STATUS_*
      */
-    private static function normalizeStatusCode(int|string $code): string
+    private static function normalizeStatusCode(int|string $code, ?TraceKind $traceKind): string
     {
         if (\is_string($code)) {
-            return match (\strtolower($code)) {
+            return match (\strtolower(\trim($code))) {
+                'ok' => StatusCode::STATUS_OK,
                 'error' => StatusCode::STATUS_ERROR,
-                'unset' => StatusCode::STATUS_UNSET,
-                default => StatusCode::STATUS_OK,
+                default => StatusCode::STATUS_UNSET,
             };
         }
 
-        return StatusCode::STATUS_OK;
+        return match (true) {
+            $code === 0 => StatusCode::STATUS_UNSET,
+            $code === 1 => StatusCode::STATUS_OK,
+            $code >= 100 && $code < 400 => StatusCode::STATUS_UNSET,
+            $code >= 400 && $code < 500 && $traceKind === TraceKind::SERVER => StatusCode::STATUS_UNSET,
+            default => StatusCode::STATUS_ERROR,
+        };
     }
 
     /**
@@ -298,6 +337,39 @@ final class Tracer extends AbstractTracer
     }
 
     /**
+     * The incoming context, extracted once: an invalid header is then reported once, not on every call.
+     */
+    private function incoming(): ContextInterface
+    {
+        /** @psalm-suppress InternalMethod Over the root, so the result holds nothing but what was extracted */
+        return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
+    }
+
+    /**
+     * Copy what the callback set on the Spiral span to the OTel one, on the success path and the exception
+     * path alike. An exception makes the span Error with its message, unless the callback has set a status:
+     * Ok is final, and an Error keeps the callback's own description.
+     */
+    private function copySpan(
+        SpanInterface $from,
+        \OpenTelemetry\API\Trace\SpanInterface $to,
+        ?TraceKind $traceKind,
+        ?\Throwable $error,
+    ): void {
+        $status = $from->getStatus();
+        $code = $status === null ? StatusCode::STATUS_UNSET : self::normalizeStatusCode($status->code, $traceKind);
+
+        if ($code !== StatusCode::STATUS_UNSET) {
+            $to->setStatus($code, $status?->description);
+        } elseif ($error !== null) {
+            $to->setStatus(StatusCode::STATUS_ERROR, $error->getMessage());
+        }
+
+        $to->updateName($from->getName());
+        $to->setAttributes(self::normalizeAttributes($from->getAttributes()));
+    }
+
+    /**
      * @param non-empty-string $name
      */
     private function createInternalSpan(string $name, array $attributes): SpanInterface
@@ -325,11 +397,9 @@ final class Tracer extends AbstractTracer
         # local parent; otherwise every span of the request would hang off it directly.
         $current = Context::getCurrent();
         if ($this->context !== [] && !OtelSpan::fromContext($current)->getContext()->isValid()) {
-            $spanBuilder->setParent(
-                $this->propagator->extract($this->context, $this->getter, $current),
-            );
+            $spanBuilder->setParent(OtelSpan::fromContext($this->incoming())->storeInContext($current));
         }
 
-        return $this->lastSpan = $spanBuilder->startSpan();
+        return $spanBuilder->startSpan();
     }
 }

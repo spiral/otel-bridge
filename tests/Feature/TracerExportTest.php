@@ -9,6 +9,7 @@ use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
+use OpenTelemetry\Context\Context;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
@@ -57,15 +58,61 @@ final class TracerExportTest
 
     #[DataSet(['error', StatusCode::STATUS_ERROR], 'error')]
     #[DataSet(['ERROR', StatusCode::STATUS_ERROR], 'case-insensitive')]
+    #[DataSet([" error\n", StatusCode::STATUS_ERROR], 'padded error')]
     #[DataSet(['unset', StatusCode::STATUS_UNSET], 'unset')]
     #[DataSet(['ok', StatusCode::STATUS_OK], 'ok')]
-    #[DataSet(['anything', StatusCode::STATUS_OK], 'unknown string')]
-    #[DataSet([500, StatusCode::STATUS_OK], 'integer')]
-    public function statusCodeIsMapped(string|int $code, string $expected): void
+    #[DataSet([' OK ', StatusCode::STATUS_OK], 'padded OK')]
+    #[DataSet(['anything', StatusCode::STATUS_UNSET], 'unknown string')]
+    #[DataSet(['', StatusCode::STATUS_UNSET], 'empty string')]
+    #[DataSet(['500', StatusCode::STATUS_UNSET], 'numeric string')]
+    public function statusNameIsMapped(string $code, string $expected): void
     {
         $span = $this->traceOne(static fn(SpanInterface $span) => $span->setStatus($code, 'reason'));
 
         Assert::same($span->getStatus()->getCode(), $expected);
+    }
+
+    public static function integerStatusCodes(): iterable
+    {
+        $kinds = [
+            'internal' => null,
+            'server' => TraceKind::SERVER,
+            'client' => TraceKind::CLIENT,
+            'producer' => TraceKind::PRODUCER,
+            'consumer' => TraceKind::CONSUMER,
+        ];
+        $codes = [
+            0 => StatusCode::STATUS_UNSET,
+            1 => StatusCode::STATUS_OK,
+            2 => StatusCode::STATUS_ERROR,
+            100 => StatusCode::STATUS_UNSET,
+            200 => StatusCode::STATUS_UNSET,
+            399 => StatusCode::STATUS_UNSET,
+            500 => StatusCode::STATUS_ERROR,
+            599 => StatusCode::STATUS_ERROR,
+            -1 => StatusCode::STATUS_ERROR,
+            3 => StatusCode::STATUS_ERROR,
+            99 => StatusCode::STATUS_ERROR,
+            600 => StatusCode::STATUS_ERROR,
+            \PHP_INT_MAX => StatusCode::STATUS_ERROR,
+        ];
+
+        foreach ($kinds as $name => $kind) {
+            foreach ($codes as $code => $expected) {
+                yield "{$code} {$name}" => [$code, $kind, $expected];
+            }
+            foreach ([400, 404, 499] as $code) {
+                yield "{$code} {$name}" => [$code, $kind, $kind === TraceKind::SERVER ? StatusCode::STATUS_UNSET : StatusCode::STATUS_ERROR];
+            }
+        }
+    }
+
+    #[DataProvider('integerStatusCodes')]
+    public function integerStatusCodeIsMappedByKind(int $code, ?TraceKind $kind, string $expected): void
+    {
+        $this->createTracer()->trace('test', static fn(SpanInterface $span) => $span->setStatus($code), traceKind: $kind);
+
+        Assert::same($this->exporter->getSpans()[0]->getStatus()->getCode(), $expected);
     }
 
     public function errorStatusKeepsDescription(): void
@@ -332,6 +379,37 @@ final class TracerExportTest
         Assert::same($events[0]->getName(), 'exception');
     }
 
+    public function throwingCallbackKeepsNameAndAttributesAndMarksSpanAsError(): void
+    {
+        $span = $this->traceThrowing(static function (SpanInterface $span): never {
+            $span->updateName('renamed')->setAttribute('k', 'v');
+            throw new \RuntimeException('Boom');
+        });
+
+        Assert::same($span->getName(), 'renamed');
+        Assert::same($span->getAttributes()->toArray(), ['k' => 'v']);
+        Assert::same($span->getStatus()->getCode(), StatusCode::STATUS_ERROR);
+        Assert::same($span->getStatus()->getDescription(), 'Boom');
+    }
+
+    #[DataSet(['ok', null, StatusCode::STATUS_OK, ''], 'Ok is final')]
+    #[DataSet(['error', 'Card expired', StatusCode::STATUS_ERROR, 'Card expired'], 'Error keeps its description')]
+    #[DataSet(['unset', null, StatusCode::STATUS_ERROR, 'Boom'], 'Unset gives way')]
+    public function statusSetBeforeTheThrowIsRespected(
+        string $code,
+        ?string $description,
+        string $expectedCode,
+        string $expectedDescription,
+    ): void {
+        $span = $this->traceThrowing(static function (SpanInterface $span) use ($code, $description): never {
+            $span->setStatus($code, $description);
+            throw new \RuntimeException('Boom');
+        });
+
+        Assert::same($span->getStatus()->getCode(), $expectedCode);
+        Assert::same($span->getStatus()->getDescription(), $expectedDescription);
+    }
+
     public function traceStateIsPropagated(): void
     {
         $tracer = $this->createTracer([
@@ -425,6 +503,71 @@ final class TracerExportTest
         );
     }
 
+    public function contextPointsToOuterSpanAfterNestedTrace(): void
+    {
+        $tracer = $this->createTracer();
+        $headers = [];
+
+        $tracer->trace('outer', static function () use ($tracer, &$headers): void {
+            $tracer->trace('inner', static fn() => null, scoped: true);
+            $headers[] = $tracer->getContext();
+        }, scoped: true);
+        $headers[] = $tracer->getContext();
+
+        $outer = $this->exporter->getSpans()[1];
+        Assert::same($outer->getName(), 'outer');
+        Assert::same($headers, \array_fill(0, 2, ['traceparent' => self::traceparentOf($outer)]));
+    }
+
+    /**
+     * A span other instrumentation activates inside a scoped trace is where the code runs; inside a trace
+     * that is not scoped it is not, as it hangs on the active span outside the trace.
+     */
+    #[DataSet([true], 'scoped')]
+    #[DataSet([false], 'not scoped')]
+    public function contextInsideTraceRespectsSpanActivatedByOthers(bool $scoped): void
+    {
+        $tracer = $this->createTracer();
+        $foreign = $this->provider->getTracer('foreign');
+        $context = [];
+
+        $tracer->trace('own', static function () use ($tracer, $foreign, &$context): void {
+            $hook = $foreign->spanBuilder('hook')->startSpan();
+            $scope = $hook->activate();
+            try {
+                $context = $tracer->getContext();
+            } finally {
+                $scope->detach();
+                $hook->end();
+            }
+        }, scoped: $scoped);
+
+        [$hook, $own] = $this->exporter->getSpans();
+        Assert::same($context, ['traceparent' => self::traceparentOf($scoped ? $hook : $own)]);
+    }
+
+    public function contextFallsBackToScopedTraceWhenNoSpanIsActive(): void
+    {
+        $tracer = $this->createTracer();
+        $context = [];
+
+        $tracer->trace('own', static function () use ($tracer, &$context): void {
+            $scope = Context::getRoot()->activate();
+            try {
+                $context = $tracer->getContext();
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: true);
+
+        Assert::same($context, ['traceparent' => self::traceparentOf($this->exporter->getSpans()[0])]);
+    }
+
+    private static function traceparentOf(SpanDataInterface $span): string
+    {
+        return '00-' . $span->getTraceId() . '-' . $span->getSpanId() . '-01';
+    }
+
     /**
      * An empty array wrapped in $levels more arrays.
      */
@@ -449,6 +592,20 @@ final class TracerExportTest
 
         Assert::same($span->getAttributes()->toArray(), ['value' => $expected]);
         Assert::same($span->getAttributes()->getDroppedAttributesCount(), 0);
+    }
+
+    private function traceThrowing(\Closure $callback): SpanDataInterface
+    {
+        try {
+            $this->createTracer()->trace('test', $callback);
+        } catch (\RuntimeException) {
+            # Rethrowing is checked by exceptionIsRethrown(); this test only needs the span.
+        }
+
+        $spans = $this->exporter->getSpans();
+        Assert::count($spans, 1);
+
+        return $spans[0];
     }
 
     private function traceOne(\Closure $callback, array $context = []): SpanDataInterface
