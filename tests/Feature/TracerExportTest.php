@@ -57,15 +57,61 @@ final class TracerExportTest
 
     #[DataSet(['error', StatusCode::STATUS_ERROR], 'error')]
     #[DataSet(['ERROR', StatusCode::STATUS_ERROR], 'case-insensitive')]
+    #[DataSet([" error\n", StatusCode::STATUS_ERROR], 'padded error')]
     #[DataSet(['unset', StatusCode::STATUS_UNSET], 'unset')]
     #[DataSet(['ok', StatusCode::STATUS_OK], 'ok')]
-    #[DataSet(['anything', StatusCode::STATUS_OK], 'unknown string')]
-    #[DataSet([500, StatusCode::STATUS_OK], 'integer')]
-    public function statusCodeIsMapped(string|int $code, string $expected): void
+    #[DataSet([' OK ', StatusCode::STATUS_OK], 'padded OK')]
+    #[DataSet(['anything', StatusCode::STATUS_UNSET], 'unknown string')]
+    #[DataSet(['', StatusCode::STATUS_UNSET], 'empty string')]
+    #[DataSet(['500', StatusCode::STATUS_UNSET], 'numeric string')]
+    public function statusNameIsMapped(string $code, string $expected): void
     {
         $span = $this->traceOne(static fn(SpanInterface $span) => $span->setStatus($code, 'reason'));
 
         Assert::same($span->getStatus()->getCode(), $expected);
+    }
+
+    public static function integerStatusCodes(): iterable
+    {
+        $kinds = [
+            'internal' => null,
+            'server' => TraceKind::SERVER,
+            'client' => TraceKind::CLIENT,
+            'producer' => TraceKind::PRODUCER,
+            'consumer' => TraceKind::CONSUMER,
+        ];
+        $codes = [
+            0 => StatusCode::STATUS_UNSET,
+            1 => StatusCode::STATUS_OK,
+            2 => StatusCode::STATUS_ERROR,
+            100 => StatusCode::STATUS_UNSET,
+            200 => StatusCode::STATUS_UNSET,
+            399 => StatusCode::STATUS_UNSET,
+            500 => StatusCode::STATUS_ERROR,
+            599 => StatusCode::STATUS_ERROR,
+            -1 => StatusCode::STATUS_ERROR,
+            3 => StatusCode::STATUS_ERROR,
+            99 => StatusCode::STATUS_ERROR,
+            600 => StatusCode::STATUS_ERROR,
+            \PHP_INT_MAX => StatusCode::STATUS_ERROR,
+        ];
+
+        foreach ($kinds as $name => $kind) {
+            foreach ($codes as $code => $expected) {
+                yield "{$code} {$name}" => [$code, $kind, $expected];
+            }
+            foreach ([400, 404, 499] as $code) {
+                yield "{$code} {$name}" => [$code, $kind, $kind === TraceKind::SERVER ? StatusCode::STATUS_UNSET : StatusCode::STATUS_ERROR];
+            }
+        }
+    }
+
+    #[DataProvider('integerStatusCodes')]
+    public function integerStatusCodeIsMappedByKind(int $code, ?TraceKind $kind, string $expected): void
+    {
+        $this->createTracer()->trace('test', static fn(SpanInterface $span) => $span->setStatus($code), traceKind: $kind);
+
+        Assert::same($this->exporter->getSpans()[0]->getStatus()->getCode(), $expected);
     }
 
     public function errorStatusKeepsDescription(): void

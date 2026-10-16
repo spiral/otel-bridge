@@ -70,7 +70,7 @@ final class Tracer extends AbstractTracer
             $traceSpan->recordException($e);
             throw $error = $e;
         } finally {
-            $this->copySpan($internalSpan, $traceSpan, $error);
+            $this->copySpan($internalSpan, $traceSpan, $traceKind, $error);
             $traceSpan->end();
             $scope?->detach();
         }
@@ -106,19 +106,30 @@ final class Tracer extends AbstractTracer
     }
 
     /**
+     * Ok only when asked for by name or by the OTLP enum value 1: the spec leaves Ok to an explicit choice.
+     * Any other string is Unset. An int other than 0, 1 and 2 is an HTTP status code, mapped as the HTTP
+     * conventions say: 4xx is the client's failure, so a SERVER span stays Unset on it, and a code out of
+     * the HTTP range cannot be interpreted, so it is Error.
+     *
      * @return StatusCode::STATUS_*
      */
-    private static function normalizeStatusCode(int|string $code): string
+    private static function normalizeStatusCode(int|string $code, ?TraceKind $traceKind): string
     {
         if (\is_string($code)) {
-            return match (\strtolower($code)) {
+            return match (\strtolower(\trim($code))) {
+                'ok' => StatusCode::STATUS_OK,
                 'error' => StatusCode::STATUS_ERROR,
-                'unset' => StatusCode::STATUS_UNSET,
-                default => StatusCode::STATUS_OK,
+                default => StatusCode::STATUS_UNSET,
             };
         }
 
-        return StatusCode::STATUS_OK;
+        return match (true) {
+            $code === 0 => StatusCode::STATUS_UNSET,
+            $code === 1 => StatusCode::STATUS_OK,
+            $code >= 100 && $code < 400 => StatusCode::STATUS_UNSET,
+            $code >= 400 && $code < 500 && $traceKind === TraceKind::SERVER => StatusCode::STATUS_UNSET,
+            default => StatusCode::STATUS_ERROR,
+        };
     }
 
     /**
@@ -295,10 +306,14 @@ final class Tracer extends AbstractTracer
      * path alike. An exception makes the span Error with its message, unless the callback has set a status:
      * Ok is final, and an Error keeps the callback's own description.
      */
-    private function copySpan(SpanInterface $from, \OpenTelemetry\API\Trace\SpanInterface $to, ?\Throwable $error): void
-    {
+    private function copySpan(
+        SpanInterface $from,
+        \OpenTelemetry\API\Trace\SpanInterface $to,
+        ?TraceKind $traceKind,
+        ?\Throwable $error,
+    ): void {
         $status = $from->getStatus();
-        $code = $status === null ? StatusCode::STATUS_UNSET : self::normalizeStatusCode($status->code);
+        $code = $status === null ? StatusCode::STATUS_UNSET : self::normalizeStatusCode($status->code, $traceKind);
 
         if ($code !== StatusCode::STATUS_UNSET) {
             $to->setStatus($code, $status?->description);
