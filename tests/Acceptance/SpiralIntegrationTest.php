@@ -26,7 +26,6 @@ use Testo\Test;
 final class SpiralIntegrationTest extends TestCase
 {
     private const FLAGS_LOCAL_PARENT = 0x101;
-    private const FLAGS_REMOTE_PARENT = 0x301;
     private const PIPELINE_SPAN = 'HTTP Pipeline';
     private const PUSH_SPAN = 'Job push [mail.send]';
     private const JOB_SPAN = 'Job handling [mail.send]';
@@ -219,7 +218,8 @@ final class SpiralIntegrationTest extends TestCase
     /**
      * spiral/queue takes the job headers from the tracer before it starts its push span, so the job
      * continues the span that pushed it, next to the push span; a span the job handler starts nests
-     * under the CONSUMER span.
+     * under the CONSUMER span. The sync driver runs the job while `checkout` is still active, so `checkout`
+     * is its local parent rather than a remote one from the job headers.
      *
      * @todo Question: messaging conventions have the consumer continue the producer's own span, of kind
      *       PRODUCER (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/); spiral/queue
@@ -247,7 +247,7 @@ final class SpiralIntegrationTest extends TestCase
         Assert::same($push->kind, ReceivedSpan::KIND_INTERNAL);
         Assert::same($job->parentSpanId, $checkout->spanId);
         Assert::same($job->kind, ReceivedSpan::KIND_CONSUMER);
-        Assert::same($job->flags, self::FLAGS_REMOTE_PARENT);
+        Assert::same($job->flags, self::FLAGS_LOCAL_PARENT);
         Assert::same($deliver->parentSpanId, $job->spanId);
         Assert::same($deliver->flags, self::FLAGS_LOCAL_PARENT);
         self::assertOneTrace($spans, $checkout->traceId);
