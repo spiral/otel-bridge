@@ -26,7 +26,16 @@ final class Tracer extends AbstractTracer
      */
     private const MAX_DEPTH = 64;
 
-    private ?\OpenTelemetry\API\Trace\SpanInterface $lastSpan = null;
+    /**
+     * The traces of this tracer that are running, innermost last, with whether each is scoped. Only
+     * {@see self::getContext()} reads it: the parent of a new span is the active one, see
+     * {@see self::getTraceSpan()}, so spans of other instrumentation nest between the bridge's own.
+     *
+     * @var list<array{\OpenTelemetry\API\Trace\SpanInterface, bool}>
+     */
+    private array $running = [];
+
+    private ?\OpenTelemetry\API\Trace\SpanInterface $lastRoot = null;
     private readonly TracestateGetter $getter;
 
     public function __construct(
@@ -63,6 +72,7 @@ final class Tracer extends AbstractTracer
             $scope = $traceSpan->activate();
         }
 
+        $this->running[] = [$traceSpan, $scoped];
         $error = null;
         try {
             return $this->runScope($internalSpan, $callback);
@@ -73,22 +83,39 @@ final class Tracer extends AbstractTracer
             $this->copySpan($internalSpan, $traceSpan, $traceKind, $error);
             $traceSpan->end();
             $scope?->detach();
+            \array_pop($this->running);
+            if ($this->running === []) {
+                $this->lastRoot = $traceSpan;
+            }
         }
     }
 
+    /**
+     * The headers that continue the trace where the code runs. The innermost running trace of this tracer
+     * decides: when it is scoped, the span active in the context, which may be a span created inside it by
+     * other instrumentation; otherwise the trace itself, as it is never activated. With no trace running,
+     * the last finished outermost one, then the incoming context.
+     */
     #[\Override]
     public function getContext(): array
     {
-        if ($this->lastSpan !== null) {
-            $ctx = $this->lastSpan->storeInContext(Context::getCurrent());
-            $carrier = [];
-            $this->propagator->inject($carrier, null, $ctx);
+        $top = \end($this->running);
+        $current = Context::getCurrent();
+        $span = match (true) {
+            $top === false => $this->lastRoot,
+            $top[1] && OtelSpan::fromContext($current)->getContext()->isValid() => OtelSpan::fromContext($current),
+            default => $top[0],
+        };
 
-            /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
-            return $carrier;
+        if ($span === null) {
+            return $this->context;
         }
 
-        return $this->context;
+        $carrier = [];
+        $this->propagator->inject($carrier, null, $span->storeInContext($current));
+
+        /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
+        return $carrier;
     }
 
     /**
@@ -358,6 +385,6 @@ final class Tracer extends AbstractTracer
             );
         }
 
-        return $this->lastSpan = $spanBuilder->startSpan();
+        return $spanBuilder->startSpan();
     }
 }

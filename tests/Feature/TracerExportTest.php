@@ -9,6 +9,7 @@ use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
+use OpenTelemetry\Context\Context;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
@@ -500,6 +501,71 @@ final class TracerExportTest
             $tracer->getContext(),
             ['traceparent' => '00-' . $span->getTraceId() . '-' . $span->getSpanId() . '-01'],
         );
+    }
+
+    public function contextPointsToOuterSpanAfterNestedTrace(): void
+    {
+        $tracer = $this->createTracer();
+        $headers = [];
+
+        $tracer->trace('outer', static function () use ($tracer, &$headers): void {
+            $tracer->trace('inner', static fn() => null, scoped: true);
+            $headers[] = $tracer->getContext();
+        }, scoped: true);
+        $headers[] = $tracer->getContext();
+
+        $outer = $this->exporter->getSpans()[1];
+        Assert::same($outer->getName(), 'outer');
+        Assert::same($headers, \array_fill(0, 2, ['traceparent' => self::traceparentOf($outer)]));
+    }
+
+    /**
+     * A span other instrumentation activates inside a scoped trace is where the code runs; inside a trace
+     * that is not scoped it is not, as it hangs on the active span outside the trace.
+     */
+    #[DataSet([true], 'scoped')]
+    #[DataSet([false], 'not scoped')]
+    public function contextInsideTraceRespectsSpanActivatedByOthers(bool $scoped): void
+    {
+        $tracer = $this->createTracer();
+        $foreign = $this->provider->getTracer('foreign');
+        $context = [];
+
+        $tracer->trace('own', static function () use ($tracer, $foreign, &$context): void {
+            $hook = $foreign->spanBuilder('hook')->startSpan();
+            $scope = $hook->activate();
+            try {
+                $context = $tracer->getContext();
+            } finally {
+                $scope->detach();
+                $hook->end();
+            }
+        }, scoped: $scoped);
+
+        [$hook, $own] = $this->exporter->getSpans();
+        Assert::same($context, ['traceparent' => self::traceparentOf($scoped ? $hook : $own)]);
+    }
+
+    public function contextFallsBackToScopedTraceWhenNoSpanIsActive(): void
+    {
+        $tracer = $this->createTracer();
+        $context = [];
+
+        $tracer->trace('own', static function () use ($tracer, &$context): void {
+            $scope = Context::getRoot()->activate();
+            try {
+                $context = $tracer->getContext();
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: true);
+
+        Assert::same($context, ['traceparent' => self::traceparentOf($this->exporter->getSpans()[0])]);
+    }
+
+    private static function traceparentOf(SpanDataInterface $span): string
+    {
+        return '00-' . $span->getTraceId() . '-' . $span->getSpanId() . '-01';
     }
 
     /**
