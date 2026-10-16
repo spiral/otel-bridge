@@ -9,7 +9,6 @@ use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
 use Testo\Assert;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -22,7 +21,6 @@ use Testo\Test;
 #[Test]
 final class ExceptionTest extends TestCase
 {
-    #[Skip('Known issue: a throwing callback leaves the span Unset, see https://github.com/spiral/otel-bridge/issues/18')]
     #[DataSet([\RuntimeException::class, 'Payment declined'], 'runtime exception')]
     #[DataSet([\TypeError::class, 'Argument #1 must be of type int'], 'error, not an exception')]
     #[DataSet([\DomainException::class, 'Nested "quotes" and ünïcödé'], 'message with quotes and unicode')]
@@ -35,7 +33,6 @@ final class ExceptionTest extends TestCase
         Assert::same($span->statusMessage, $message);
     }
 
-    #[Skip('Known issue: a throwing callback leaves the span Unset, see https://github.com/spiral/otel-bridge/issues/18')]
     public function exceptionWithEmptyMessageStillMarksSpanAsError(): void
     {
         self::rescue(fn() => $this->tracer()->trace('silent', static fn() => throw new \LogicException()));
@@ -88,7 +85,6 @@ final class ExceptionTest extends TestCase
             ->contains('Row 7 is malformed');
     }
 
-    #[Skip('Known issue: a throwing callback leaves the span Unset, see https://github.com/spiral/otel-bridge/issues/18')]
     public function exceptionWithPreviousUsesOuterMessageAsDescription(): void
     {
         self::rescue(fn() => $this->tracer()->trace('import', static fn() => throw new \RuntimeException(
@@ -123,7 +119,6 @@ final class ExceptionTest extends TestCase
         Assert::int($spans->named('once')->endTimeUnixNano)->greaterThanOrEqual($spans->named('once')->startTimeUnixNano);
     }
 
-    #[Skip('Known issue: a throwing callback loses the name set inside it, see https://github.com/spiral/otel-bridge/issues/18')]
     public function nameUpdatedInsideCallbackSurvivesTheThrow(): void
     {
         self::rescue(fn() => $this->tracer()->trace('draft', static function (SpanInterface $span): never {
@@ -143,7 +138,6 @@ final class ExceptionTest extends TestCase
         Assert::same($this->traces()->await(1)->spans[0]->name, 'keep-me');
     }
 
-    #[Skip('Known issue: a throwing callback loses the attributes passed to trace(), see https://github.com/spiral/otel-bridge/issues/18')]
     public function attributesPassedToTraceSurviveTheThrow(): void
     {
         self::rescue(fn() => $this->tracer()->trace(
@@ -157,7 +151,6 @@ final class ExceptionTest extends TestCase
         Assert::same($span->attributes['cart.size'] ?? null, 3);
     }
 
-    #[Skip('Known issue: a throwing callback loses the attributes set inside it, see https://github.com/spiral/otel-bridge/issues/18')]
     public function attributesSetInsideCallbackSurviveTheThrowAndOverrideInitialOnes(): void
     {
         self::rescue(fn() => $this->tracer()->trace(
@@ -181,7 +174,6 @@ final class ExceptionTest extends TestCase
     /**
      * `setAttributes()` replaces the whole set, so an initial attribute it drops must not come back.
      */
-    #[Skip('Known issue: a throwing callback loses the attributes set inside it, see https://github.com/spiral/otel-bridge/issues/18')]
     public function attributesReplacedInsideCallbackSurviveTheThrow(): void
     {
         self::rescue(fn() => $this->tracer()->trace(
@@ -198,7 +190,6 @@ final class ExceptionTest extends TestCase
         Assert::false(\array_key_exists('dropped', $span->attributes));
     }
 
-    #[Skip('Known issue: a throwing callback leaves the span Unset and loses its name and attributes, see https://github.com/spiral/otel-bridge/issues/18')]
     public function throwingServerSpanKeepsKindAndEverythingSetBeforeTheThrow(): void
     {
         self::rescue(fn() => $this->tracer()->trace(
@@ -221,12 +212,8 @@ final class ExceptionTest extends TestCase
     }
 
     /**
-     * Ok is final: https://opentelemetry.io/docs/specs/otel/trace/api/#set-status
-     *
-     * @todo Question: Ok set inside the callback stays Ok after a throw (the spec makes Ok final);
-     *       #18 only mentions keeping a user-set Error. Confirm Ok should win over the exception.
+     * Ok is final, so it wins over the exception: https://opentelemetry.io/docs/specs/otel/trace/api/#set-status
      */
-    #[Skip('Known issue: a throwing callback drops the status set inside it, see https://github.com/spiral/otel-bridge/issues/18')]
     public function okStatusSetByCallbackIsFinalEvenWhenItThrows(): void
     {
         self::rescue(fn() => $this->tracer()->trace('ok-then-throw', static function (SpanInterface $span): never {
@@ -243,7 +230,6 @@ final class ExceptionTest extends TestCase
     /**
      * Setting Unset is ignored: https://opentelemetry.io/docs/specs/otel/trace/api/#set-status
      */
-    #[Skip('Known issue: a throwing callback leaves the span Unset, see https://github.com/spiral/otel-bridge/issues/18')]
     public function unsetStatusSetByCallbackDoesNotHideTheError(): void
     {
         self::rescue(fn() => $this->tracer()->trace('unset-then-throw', static function (SpanInterface $span): never {
@@ -257,9 +243,8 @@ final class ExceptionTest extends TestCase
     }
 
     /**
-     * The spec lets either description win, so both the callback's and the exception's are accepted.
+     * The spec lets either description win; the bridge keeps the one the callback chose.
      */
-    #[Skip('Known issue: a throwing callback drops the status set inside it, see https://github.com/spiral/otel-bridge/issues/18')]
     public function errorStatusSetByCallbackStaysErrorWhenItThrows(): void
     {
         self::rescue(fn() => $this->tracer()->trace('error-then-throw', static function (SpanInterface $span): never {
@@ -269,7 +254,7 @@ final class ExceptionTest extends TestCase
 
         $span = $this->traces()->await(1)->named('error-then-throw');
         Assert::same($span->statusCode, ReceivedSpan::STATUS_ERROR);
-        Assert::contains(['Card expired', 'Gateway rejected the charge'], $span->statusMessage);
+        Assert::same($span->statusMessage, 'Card expired');
     }
 
     /**
@@ -301,7 +286,6 @@ final class ExceptionTest extends TestCase
         Assert::same($spans->named('inner')->events[0]['attributes']['exception.message'] ?? null, 'inner failed');
     }
 
-    #[Skip('Known issue: a throwing callback leaves the span Unset, see https://github.com/spiral/otel-bridge/issues/18')]
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
     public function innerSpanIsErrorWhileOuterThatCatchesStaysUnset(bool $scoped): void
@@ -369,7 +353,6 @@ final class ExceptionTest extends TestCase
         Assert::notSame($next->traceId, $failed->traceId);
     }
 
-    #[Skip('Known issue: a throwing callback leaves the span Unset and loses its name, see https://github.com/spiral/otel-bridge/issues/18')]
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
     public function exceptionPropagatingThroughBothSpansMarksBothAsError(bool $scoped): void
@@ -401,7 +384,6 @@ final class ExceptionTest extends TestCase
         Assert::same($inner->events[0]['attributes']['exception.type'] ?? null, \RuntimeException::class);
     }
 
-    #[Skip('Known issue: a throwing callback leaves the span Unset, see https://github.com/spiral/otel-bridge/issues/18')]
     public function sameExceptionRethrownThroughNestedSpansMarksEachAsErrorOnce(): void
     {
         $tracer = $this->tracer();

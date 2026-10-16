@@ -91,6 +91,9 @@ final class TracerTest
         $span = $this->expectSpanStarted();
         $span->expects('end')->with(Argument::none())->returns($span);
         $span->expects('recordException')->with($exception)->returns($span);
+        $span->expects('setStatus')->with('Error', 'Something went wrong')->returns($span);
+        $span->expects('updateName')->with('test')->returns($span);
+        $span->expects('setAttributes')->with(['foo' => 'bar'])->returns($span);
 
         Expect::exception(\ErrorException::class)->withMessageContaining('Something went wrong');
 

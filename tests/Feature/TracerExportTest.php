@@ -332,6 +332,37 @@ final class TracerExportTest
         Assert::same($events[0]->getName(), 'exception');
     }
 
+    public function throwingCallbackKeepsNameAndAttributesAndMarksSpanAsError(): void
+    {
+        $span = $this->traceThrowing(static function (SpanInterface $span): never {
+            $span->updateName('renamed')->setAttribute('k', 'v');
+            throw new \RuntimeException('Boom');
+        });
+
+        Assert::same($span->getName(), 'renamed');
+        Assert::same($span->getAttributes()->toArray(), ['k' => 'v']);
+        Assert::same($span->getStatus()->getCode(), StatusCode::STATUS_ERROR);
+        Assert::same($span->getStatus()->getDescription(), 'Boom');
+    }
+
+    #[DataSet(['ok', null, StatusCode::STATUS_OK, ''], 'Ok is final')]
+    #[DataSet(['error', 'Card expired', StatusCode::STATUS_ERROR, 'Card expired'], 'Error keeps its description')]
+    #[DataSet(['unset', null, StatusCode::STATUS_ERROR, 'Boom'], 'Unset gives way')]
+    public function statusSetBeforeTheThrowIsRespected(
+        string $code,
+        ?string $description,
+        string $expectedCode,
+        string $expectedDescription,
+    ): void {
+        $span = $this->traceThrowing(static function (SpanInterface $span) use ($code, $description): never {
+            $span->setStatus($code, $description);
+            throw new \RuntimeException('Boom');
+        });
+
+        Assert::same($span->getStatus()->getCode(), $expectedCode);
+        Assert::same($span->getStatus()->getDescription(), $expectedDescription);
+    }
+
     public function traceStateIsPropagated(): void
     {
         $tracer = $this->createTracer([
@@ -449,6 +480,20 @@ final class TracerExportTest
 
         Assert::same($span->getAttributes()->toArray(), ['value' => $expected]);
         Assert::same($span->getAttributes()->getDroppedAttributesCount(), 0);
+    }
+
+    private function traceThrowing(\Closure $callback): SpanDataInterface
+    {
+        try {
+            $this->createTracer()->trace('test', $callback);
+        } catch (\RuntimeException) {
+            # Rethrowing is checked by exceptionIsRethrown(); this test only needs the span.
+        }
+
+        $spans = $this->exporter->getSpans();
+        Assert::count($spans, 1);
+
+        return $spans[0];
     }
 
     private function traceOne(\Closure $callback, array $context = []): SpanDataInterface

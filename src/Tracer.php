@@ -63,21 +63,14 @@ final class Tracer extends AbstractTracer
             $scope = $traceSpan->activate();
         }
 
+        $error = null;
         try {
-            $result = $this->runScope($internalSpan, $callback);
-
-            if (($status = $internalSpan->getStatus()) !== null) {
-                $traceSpan->setStatus(self::normalizeStatusCode($status->code), $status->description);
-            }
-
-            $traceSpan->updateName($internalSpan->getName());
-            $traceSpan->setAttributes(self::normalizeAttributes($internalSpan->getAttributes()));
-
-            return $result;
+            return $this->runScope($internalSpan, $callback);
         } catch (\Throwable $e) {
             $traceSpan->recordException($e);
-            throw $e;
+            throw $error = $e;
         } finally {
+            $this->copySpan($internalSpan, $traceSpan, $error);
             $traceSpan->end();
             $scope?->detach();
         }
@@ -295,6 +288,26 @@ final class Tracer extends AbstractTracer
         } catch (\Throwable) {
             return \get_debug_type($value);
         }
+    }
+
+    /**
+     * Copy what the callback set on the Spiral span to the OTel one, on the success path and the exception
+     * path alike. An exception makes the span Error with its message, unless the callback has set a status:
+     * Ok is final, and an Error keeps the callback's own description.
+     */
+    private function copySpan(SpanInterface $from, \OpenTelemetry\API\Trace\SpanInterface $to, ?\Throwable $error): void
+    {
+        $status = $from->getStatus();
+        $code = $status === null ? StatusCode::STATUS_UNSET : self::normalizeStatusCode($status->code);
+
+        if ($code !== StatusCode::STATUS_UNSET) {
+            $to->setStatus($code, $status?->description);
+        } elseif ($error !== null) {
+            $to->setStatus(StatusCode::STATUS_ERROR, $error->getMessage());
+        }
+
+        $to->updateName($from->getName());
+        $to->setAttributes(self::normalizeAttributes($from->getAttributes()));
     }
 
     /**
