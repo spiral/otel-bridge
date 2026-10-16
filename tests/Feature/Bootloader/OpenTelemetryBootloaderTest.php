@@ -8,6 +8,7 @@ use OpenTelemetry\API\Behavior\Internal\Logging;
 use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanInterface;
+use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\MultiTextMapPropagator;
 use OpenTelemetry\Context\Propagation\NoopTextMapPropagator;
@@ -93,6 +94,27 @@ final class OpenTelemetryBootloaderTest extends TestCase
         Assert::instanceOf($provider, NoopTracerProvider::class);
         Assert::true($provider->forceFlush());
         Assert::true($provider->shutdown());
+    }
+
+    /**
+     * A SERVER span inside a SERVER span, as the Spiral one inside that of `opentelemetry-auto-psr15`,
+     * takes the ids of the outer one.
+     */
+    public function providerSuppressesSpanInsideSpanOfSameKind(): void
+    {
+        $tracer = (new OpenTelemetryBootloader())
+            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), new Container())
+            ->getTracer('test');
+        $outer = $tracer->spanBuilder('outer')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
+        $scope = $outer->activate();
+
+        try {
+            $inner = $tracer->spanBuilder('inner')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
+        } finally {
+            $scope->detach();
+        }
+
+        Assert::same($inner->getContext()->getSpanId(), $outer->getContext()->getSpanId());
     }
 
     public function samplerComesFromEnv(): void

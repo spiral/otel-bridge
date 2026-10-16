@@ -32,6 +32,7 @@ use Spiral\OpenTelemetry\InstrumentationScope;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\ContextFinalizer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
+use Spiral\OpenTelemetry\Trace\DuplicateSpanSuppressionStrategy;
 use Spiral\OpenTelemetry\Trace\TracerProviderFinalizer;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
@@ -152,7 +153,11 @@ final class OpenTelemetryBootloader extends Bootloader
             $sampler = null;
         }
 
-        $provider = new TracerProvider($spanProcessor, $sampler);
+        $provider = new TracerProvider(
+            $spanProcessor,
+            $sampler,
+            spanSuppressionStrategy: new DuplicateSpanSuppressionStrategy(),
+        );
         $providerFinalizer = new TracerProviderFinalizer($provider, $container);
         # At exit PHP runs shutdown functions before the kernel destructor calls finalize(true), and after
         # a fatal error only them. The reference is weak: an app already destroyed is not shut down twice.
