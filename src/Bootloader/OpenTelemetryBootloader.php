@@ -88,14 +88,6 @@ final class OpenTelemetryBootloader extends Bootloader
         $finalizer->addFinalizer(new ContextFinalizer($registration));
     }
 
-    /**
-     * Whether the SDK autoloader configures the global SDK, `OTEL_PHP_AUTOLOAD_ENABLED`.
-     */
-    private static function sdkAutoloaded(): bool
-    {
-        return Configuration::getBoolean(Variables::OTEL_PHP_AUTOLOAD_ENABLED);
-    }
-
     public function initTracer(TracerProviderInterface $tracerProvider): TracerInterface
     {
         return $tracerProvider->getTracer(InstrumentationScope::NAME, InstrumentationScope::version());
@@ -170,5 +162,13 @@ final class OpenTelemetryBootloader extends Bootloader
         $finalizer->addFinalizer($providerFinalizer);
 
         return $provider;
+    }
+
+    /**
+     * Whether the SDK autoloader configures the global SDK, `OTEL_PHP_AUTOLOAD_ENABLED`.
+     */
+    private static function sdkAutoloaded(): bool
+    {
+        return Configuration::getBoolean(Variables::OTEL_PHP_AUTOLOAD_ENABLED);
     }
 }
