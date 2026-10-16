@@ -341,6 +341,7 @@ final class Tracer extends AbstractTracer
      */
     private function incoming(): ContextInterface
     {
+        /** @psalm-suppress InternalMethod Over the root, so the result holds nothing but what was extracted */
         return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
     }
 
