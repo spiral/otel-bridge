@@ -4,17 +4,18 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
+use OpenTelemetry\API\Behavior\Internal\Logging;
 use OpenTelemetry\API\Trace\TracerInterface as OtelTracerInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Spiral\Boot\FinalizerInterface;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\BatchProcessorProbeBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
+use Spiral\OpenTelemetry\Tests\Acceptance\Support\SdkLogWriter;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\ReceivedSpan;
 use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -44,7 +45,6 @@ final class BatchProcessorTest extends TestCase
         Assert::count($this->traces()->settled(), 0);
     }
 
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function finalizeFlushesQueuedSpans(): void
     {
         $this->tracer()->trace('job', static fn() => null, attributes: ['job.id' => 7]);
@@ -61,7 +61,6 @@ final class BatchProcessorTest extends TestCase
      * finalize(false) ends a request in a long-running worker: it has to be ForceFlush, not Shutdown,
      * which would drop every later span: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk.md#shutdown-1
      */
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function tracingGoesOnAfterEachFinalize(): void
     {
         $this->tracer()->trace('first', static fn() => null);
@@ -80,7 +79,6 @@ final class BatchProcessorTest extends TestCase
         Assert::count($all, 3, "Received:\n{$all}");
     }
 
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function finalizeKeepsTheTreeOfScopedSpans(): void
     {
         $tracer = $this->tracer();
@@ -103,7 +101,6 @@ final class BatchProcessorTest extends TestCase
     /**
      * FakeHttp calls finalize(false) after every request, as the RoadRunner HTTP dispatcher does.
      */
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function eachRequestOfWorkerIsExportedWhenItEnds(): void
     {
         $this->fakeHttp()->get('/ping')->assertOk();
@@ -127,7 +124,6 @@ final class BatchProcessorTest extends TestCase
      * The kernel destructor calls finalize(true); Shutdown has to export what is still queued:
      * https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk.md#shutdown-1
      */
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function terminatingFinalizeExportsQueuedSpans(): void
     {
         $this->tracer()->trace('last words', static fn() => null);
@@ -143,7 +139,6 @@ final class BatchProcessorTest extends TestCase
      * Unset falls back to the SDK default, which is `batch`.
      */
     #[Env('OTEL_PHP_TRACES_PROCESSOR', '')]
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function defaultProcessorExportsOnFinalize(): void
     {
         $this->tracer()->trace('by default', static fn() => null);
@@ -174,7 +169,6 @@ final class BatchProcessorTest extends TestCase
 
     #[Env('OTEL_BSP_MAX_EXPORT_BATCH_SIZE', '2')]
     #[Env('OTEL_BSP_MAX_QUEUE_SIZE', '4')]
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function finalizeExportsRemainderOfPartialBatch(): void
     {
         for ($i = 1; $i <= 5; ++$i) {
@@ -251,13 +245,12 @@ final class BatchProcessorTest extends TestCase
     /**
      * The provider is meant to be one per app: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/api.md#tracerprovider
      *
-     * @todo Question: must the span exporter be a singleton too? #10 proposes it, the spec only needs one
-     *       exporter per processor. Drop the "span exporter" data set if not.
+     * The span exporter is one per app too: the singleton processor already holds one, and a second
+     * instance resolved elsewhere would flush or shut down nothing the app exports through.
      */
     #[DataSet([TracerProviderInterface::class], 'tracer provider')]
     #[DataSet([OtelTracerInterface::class], 'OTel tracer')]
     #[DataSet([SpanExporterInterface::class], 'span exporter')]
-    #[Skip('Known issue: the tracer provider, OTel tracer and span exporter are not singletons, see https://github.com/spiral/otel-bridge/issues/10')]
     public function tracingServiceIsSingleton(string $service): void
     {
         $container = $this->getContainer();
@@ -300,16 +293,25 @@ final class BatchProcessorTest extends TestCase
     #[DataSet([true], 'termination')]
     public function finalizeSurvivesUnknownExporter(bool $terminate): void
     {
-        $this->tracer()->trace('lost', static fn() => null);
+        $log = new SdkLogWriter();
+        Logging::setLogWriter($log);
 
-        $this->finalizer()->finalize($terminate);
-        $this->finalizer()->finalize($terminate);
-        $result = $this->tracer()->trace('still traced', static fn() => 'ok');
+        try {
+            $this->tracer()->trace('lost', static fn() => null);
+
+            $this->finalizer()->finalize($terminate);
+            $this->finalizer()->finalize($terminate);
+            $result = $this->tracer()->trace('still traced', static fn() => 'ok');
+            # While the log is still captured: the failing export of the last span is logged too.
+            $this->finalizer()->finalize(true);
+        } finally {
+            Logging::reset();
+        }
 
         Assert::same($result, 'ok');
+        Assert::true($log->problems() !== [], 'The failed export must be reported.');
     }
 
-    #[Skip('Known issue: the batch span processor is never flushed, see https://github.com/spiral/otel-bridge/issues/10')]
     public function repeatedFinalizeExportsEachSpanOnce(): void
     {
         $this->tracer()->trace('once', static fn() => null);

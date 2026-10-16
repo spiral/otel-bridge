@@ -34,9 +34,6 @@ final class ExporterLifecycleTest extends TestCase
 
     private SdkLogWriter $log;
 
-    /** Results of the flushes made by {@see flushOnFinalize()}; disarmed after the test. */
-    private ?\stdClass $finalizerFlushes = null;
-
     #[BeforeTest]
     public function captureSdkLog(): void
     {
@@ -48,13 +45,6 @@ final class ExporterLifecycleTest extends TestCase
     public function restoreSdkLog(): void
     {
         Logging::reset();
-    }
-
-    #[AfterTest]
-    public function disarmFinalizerFlush(): void
-    {
-        # The kernel runs finalizers again when it is destructed, after the env of the test is gone.
-        $this->finalizerFlushes === null or $this->finalizerFlushes->armed = false;
     }
 
     public function otlpExportsEverySpanWithoutReportingProblems(): void
@@ -162,12 +152,12 @@ final class ExporterLifecycleTest extends TestCase
     }
 
     /**
-     * The per-request flush of #10, wired as a finalizer, on a worker with tracing turned off.
+     * The flush after every request and the shutdown with the app, on a worker with tracing turned off.
      */
     #[Env('OTEL_TRACES_EXPORTER', 'none')]
+    #[Env('OTEL_PHP_TRACES_PROCESSOR', 'batch')]
     public function noneKeepsFinalizerFlushSilent(): void
     {
-        $flushes = $this->flushOnFinalize();
         $finalizer = $this->getContainer()->get(FinalizerInterface::class);
 
         $this->traceSpans();
@@ -175,8 +165,9 @@ final class ExporterLifecycleTest extends TestCase
         $this->traceSpans();
         $finalizer->finalize(terminate: true);
 
-        Assert::same($flushes->results, [true, true]);
+        Assert::false($this->processor()->shutdown(), 'The finalizer must have shut the processor down.');
         $this->assertNoProblems();
+        $this->assertNothingArrives();
     }
 
     /**
@@ -252,18 +243,23 @@ final class ExporterLifecycleTest extends TestCase
     }
 
     /**
-     * A misconfigured exporter must not crash the worker after every request once #10 flushes in a finalizer.
+     * A misconfigured exporter must not crash the worker, which flushes in a finalizer after every request.
      */
     #[Env('OTEL_TRACES_EXPORTER', 'bogus')]
-    public function unknownExporterNeverThrowsFromFinalizerFlush(): void
+    #[Env('OTEL_PHP_TRACES_PROCESSOR', 'batch')]
+    #[DataSet([false], 'request end')]
+    #[DataSet([true], 'termination')]
+    public function unknownExporterNeverThrowsFromFinalizerFlush(bool $terminate): void
     {
-        $this->flushOnFinalize();
         $finalizer = $this->getContainer()->get(FinalizerInterface::class);
         $this->traceSpans();
+        $queued = $this->log->problems();
 
-        $thrown = self::rescue(static fn() => $finalizer->finalize(terminate: true));
+        $thrown = self::rescue(static fn() => $finalizer->finalize($terminate));
 
         Assert::null($thrown, $thrown instanceof \Throwable ? $thrown::class . ": {$thrown->getMessage()}" : '');
+        Assert::same($queued, []);
+        Assert::true($this->log->problems() !== [], 'The finalizer must export the queued spans, and fail.');
     }
 
     /**
@@ -359,22 +355,6 @@ final class ExporterLifecycleTest extends TestCase
     private function processor(): SpanProcessorInterface
     {
         return $this->getContainer()->get(SpanProcessorInterface::class);
-    }
-
-    /**
-     * Flushes the provider after every request, the way #10 would wire it into the finalizer.
-     */
-    private function flushOnFinalize(): \stdClass
-    {
-        $flushes = $this->finalizerFlushes = new \stdClass();
-        $flushes->armed = true;
-        $flushes->results = [];
-        $provider = $this->provider();
-        $this->getContainer()->get(FinalizerInterface::class)->addFinalizer(static function () use ($flushes, $provider): void {
-            $flushes->armed and $flushes->results[] = $provider->forceFlush();
-        });
-
-        return $flushes;
     }
 
     private function assertNoProblems(): void
