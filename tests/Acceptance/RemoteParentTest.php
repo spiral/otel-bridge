@@ -16,7 +16,6 @@ use Spiral\Telemetry\TracerFactoryInterface;
 use Spiral\Telemetry\TracerInterface;
 use Testo\Assert;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -48,8 +47,10 @@ final class RemoteParentTest extends TestCase
     }
 
     /**
-     * @todo Question: when a local span is already active and the tracer was made with an incoming traceparent,
-     *       which one parents the new span? The spec leaves it open (#16 proposes the local span); no test yet.
+     * The remote parent is used only while no local span is active; an active one parents the new span.
+     * In a request every span after the entry one descends from the remote parent anyway, and a span already
+     * active at the first trace() comes either from OTel auto-instrumentation, which starts the server span
+     * from the same traceparent, or from a leaked foreign scope, which breaks the tree without one too.
      */
     #[DataSet([['traceparent' => self::TRACEPARENT]], 'lowercase header')]
     #[DataSet([['Traceparent' => self::TRACEPARENT]], 'capitalized header')]
@@ -71,7 +72,6 @@ final class RemoteParentTest extends TestCase
     #[DataSet([['traceparent' => self::TRACEPARENT]], 'lowercase header')]
     #[DataSet([['TRACEPARENT' => self::TRACEPARENT]], 'uppercase header')]
     #[DataSet([['traceparent' => [self::TRACEPARENT]]], 'PSR-7 header list')]
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function nestedScopedSpanIsChildOfOutermostSpan(array $headers): void
     {
         $this->tracerWithContext($headers)->trace(
@@ -94,7 +94,6 @@ final class RemoteParentTest extends TestCase
         Assert::same($inner->flags, self::FLAGS_LOCAL_PARENT);
     }
 
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function deeplyNestedScopedSpansFormChain(): void
     {
         $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT]);
@@ -115,7 +114,6 @@ final class RemoteParentTest extends TestCase
         }
     }
 
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function siblingsShareOutermostSpanAsParent(): void
     {
         $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT]);
@@ -136,7 +134,6 @@ final class RemoteParentTest extends TestCase
         }
     }
 
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function siblingAfterThrowingChildStillNestsUnderOutermostSpan(): void
     {
         $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT]);
@@ -174,7 +171,6 @@ final class RemoteParentTest extends TestCase
         Assert::same($spans->named('inner')->flags, self::FLAGS_REMOTE_PARENT);
     }
 
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function scopedSpanUnderNonScopedOutermostSpanParentsItsOwnChildren(): void
     {
         $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT]);
@@ -192,7 +188,6 @@ final class RemoteParentTest extends TestCase
         Assert::same($spans->named('leaf')->parentSpanId, $spans->named('inner')->spanId);
     }
 
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function nonScopedMiddleSpanIsSkippedInParentChain(): void
     {
         $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT]);
@@ -256,7 +251,6 @@ final class RemoteParentTest extends TestCase
      * The container's TracerInterface is a proxy: inside a traced callback it resolves to the tracer
      * bound for that span, the one holding the incoming headers.
      */
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function spanOfContainerTracerNestsUnderRemoteContinuedSpan(): void
     {
         $proxy = $this->tracer();
@@ -361,7 +355,6 @@ final class RemoteParentTest extends TestCase
     /**
      * A sampled remote parent keeps the sampled bit on every span of the local tree.
      */
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function sampledRemoteParentKeepsWholeTreeSampled(): void
     {
         $this->tracerWithContext(['traceparent' => self::TRACEPARENT])->trace(
@@ -424,7 +417,6 @@ final class RemoteParentTest extends TestCase
 
     #[DataSet([['traceparent' => self::TRACEPARENT]], 'lowercase header')]
     #[DataSet([['TraceParent' => self::TRACEPARENT, 'TraceState' => self::TRACESTATE]], 'mixed-case headers')]
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function requestWithTraceparentArrivesAsTree(array $headers): void
     {
         $response = $this->fakeHttp()->get('/ping', headers: $headers);
@@ -495,7 +487,6 @@ final class RemoteParentTest extends TestCase
     /**
      * Each request continues its own remote trace; nothing of the first request's context reaches the second.
      */
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function consecutiveRequestsContinueTheirOwnTraces(): void
     {
         $otherTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
@@ -522,7 +513,6 @@ final class RemoteParentTest extends TestCase
      * The queue consumer traces a job as a scoped CONSUMER span made from the job headers, which arrive
      * as lists of values, like PSR-7 headers.
      */
-    #[Skip('Known issue: incoming traceparent flattens the span tree, see https://github.com/spiral/otel-bridge/issues/16')]
     public function consumedJobArrivesAsTreeUnderProducerSpan(): void
     {
         $handler = new Handler(

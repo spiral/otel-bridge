@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry;
 
+use OpenTelemetry\API\Trace\Span as OtelSpan;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\API\Trace\TracerInterface;
@@ -320,9 +321,12 @@ final class Tracer extends AbstractTracer
             $spanBuilder->setStartTimestamp($startTime);
         }
 
-        if ($this->context !== []) {
+        # An explicit parent overrides the active span, so the remote one is set only for a span with no
+        # local parent; otherwise every span of the request would hang off it directly.
+        $current = Context::getCurrent();
+        if ($this->context !== [] && !OtelSpan::fromContext($current)->getContext()->isValid()) {
             $spanBuilder->setParent(
-                $this->propagator->extract($this->context, $this->getter),
+                $this->propagator->extract($this->context, $this->getter, $current),
             );
         }
 
