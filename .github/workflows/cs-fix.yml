@@ -10,9 +10,43 @@ name: Fix Code Style
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cs-fix:
-    uses: spiral/gh-actions/.github/workflows/cs-fix.yml@master
-    with:
-      php: >-
-        ['8.2']
+    name: PHP-CS-Fixer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # php-cs-fixer rewrites files; keep LF so it never churns line endings.
+      - name: Set Git To Use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+
+      # PHP-CS-Fixer (spiral/code-style) is isolated in tools/code-style via bamarni/composer-bin-plugin.
+      - name: Install PHP-CS-Fixer
+        run: composer bin code-style install --no-interaction --no-progress
+
+      - name: Fix Code Style
+        run: composer cs:fix
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'style(php-cs-fixer): fix coding standards'
+          commit_author: 'github-actions <github-actions@users.noreply.github.com>'
