@@ -127,14 +127,6 @@ final class Tracer extends AbstractTracer
     }
 
     /**
-     * The incoming context, extracted once: an invalid header is then reported once, not on every call.
-     */
-    private function incoming(): ContextInterface
-    {
-        return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
-    }
-
-    /**
      * @return SpanKind::KIND_*
      */
     public function convertSpanKind(?TraceKind $traceKind): int
@@ -342,6 +334,14 @@ final class Tracer extends AbstractTracer
         } catch (\Throwable) {
             return \get_debug_type($value);
         }
+    }
+
+    /**
+     * The incoming context, extracted once: an invalid header is then reported once, not on every call.
+     */
+    private function incoming(): ContextInterface
+    {
+        return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
     }
 
     /**
