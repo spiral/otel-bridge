@@ -34,6 +34,7 @@ use Spiral\OpenTelemetry\Trace\ContextFinalizer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\Trace\DuplicateSpanSuppressionStrategy;
 use Spiral\OpenTelemetry\Trace\TracerProviderFinalizer;
+use Spiral\OpenTelemetry\Trace\UnsampledContext;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
 use Spiral\Telemetry\ClockInterface;
@@ -109,7 +110,9 @@ final class OpenTelemetryBootloader extends Bootloader
             return NoopSpanProcessor::getInstance();
         }
 
-        return (new SpanProcessorFactory())->create($exporter);
+        # The processor exports under the context it is built in: built under a span that is not sampled,
+        # it keeps the spans hooks start for the exporter's own requests from being exported in turn.
+        return UnsampledContext::run(static fn(): SpanProcessorInterface => (new SpanProcessorFactory())->create($exporter));
     }
 
     public function initSpanExporter(): SpanExporterInterface

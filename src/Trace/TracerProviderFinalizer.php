@@ -41,7 +41,9 @@ final class TracerProviderFinalizer
         # answers `false` too.
         try {
             # @infection-ignore-all Killed only by the tests of process exit, which run the unmutated src.
-            $terminate && $this->owned ? $this->provider->shutdown() : $this->provider->forceFlush();
+            UnsampledContext::run(fn(): bool => $terminate && $this->owned
+                ? $this->provider->shutdown()
+                : $this->provider->forceFlush());
         } catch (\Throwable $e) {
             $this->report($e);
         }
