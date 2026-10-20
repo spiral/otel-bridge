@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Spiral\OpenTelemetry\Tests\Acceptance\Support\Process;
+namespace Spiral\OpenTelemetry\Tests\Support;
 
 use Testo\Assert;
 
 /**
- * Runs a script of `tests/Process` in a PHP subprocess: `Globals` and the hooks of ext-opentelemetry are
- * per process, so each scenario that depends on them gets a process of its own.
+ * Runs a script of `tests/Process` in a PHP subprocess, for what only a process of its own shows: process
+ * exit, `Globals` and the hooks of ext-opentelemetry, which are per process.
  */
 final class PhpProcess
 {
@@ -18,10 +18,11 @@ final class PhpProcess
     /**
      * @param non-empty-string $script File name in `tests/Process`.
      * @param array<string, string> $env Added to the env of this process, which the child inherits.
+     * @param list<string> $args
      *
      * @return array{list<string>, string, int} Lines of stdout, stderr and the exit code.
      */
-    public static function run(string $script, array $env = []): array
+    public static function run(string $script, array $env = [], array $args = []): array
     {
         # Files, not pipes: a child that fills the pipe nobody reads yet would block forever.
         $out = (string) \tempnam(\sys_get_temp_dir(), 'otel');
@@ -29,7 +30,7 @@ final class PhpProcess
 
         try {
             $process = \proc_open(
-                [\PHP_BINARY, __DIR__ . '/../../../Process/' . $script],
+                [\PHP_BINARY, __DIR__ . '/../Process/' . $script, ...$args],
                 [0 => ['pipe', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']],
                 $pipes,
                 null,

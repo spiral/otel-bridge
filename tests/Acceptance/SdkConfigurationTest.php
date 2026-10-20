@@ -9,6 +9,7 @@ use OpenTelemetry\API\Behavior\Internal\Logging;
 use Spiral\Boot\EnvironmentInterface;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\SdkLogWriter;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\ReceivedSpan;
+use Spiral\OpenTelemetry\Tests\Support\TestEnv;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
 use Spiral\Telemetry\TracerInterface;
@@ -90,7 +91,7 @@ final class SdkConfigurationTest extends TestCase
     {
         $name = $this->env('OTEL_SERVICE_NAME');
 
-        $this->withProcessEnv(
+        TestEnv::withProcessEnv(
             ['OTEL_SERVICE_NAME' => null, 'OTEL_RESOURCE_ATTRIBUTES' => "service.name={$name},service.version=2.0.0"],
             fn() => $this->tracer()->trace('resource', static fn() => null),
         );
@@ -322,7 +323,7 @@ final class SdkConfigurationTest extends TestCase
     {
         $base = $this->env('OTEL_EXPORTER_OTLP_ENDPOINT');
 
-        $this->withProcessEnv(
+        TestEnv::withProcessEnv(
             ['OTEL_EXPORTER_OTLP_ENDPOINT' => self::UNREACHABLE, 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT' => "{$base}/v1/traces"],
             fn() => $this->tracer()->trace('signal-endpoint', static fn() => null),
         );
@@ -340,7 +341,7 @@ final class SdkConfigurationTest extends TestCase
     {
         $base = $this->env('OTEL_EXPORTER_OTLP_ENDPOINT');
 
-        $this->withProcessEnv(
+        TestEnv::withProcessEnv(
             ['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT' => $base],
             fn() => $this->tracer()->trace('as-is', static fn() => null),
         );
@@ -357,7 +358,7 @@ final class SdkConfigurationTest extends TestCase
     {
         $base = $this->env('OTEL_EXPORTER_OTLP_ENDPOINT');
 
-        $this->withProcessEnv(
+        TestEnv::withProcessEnv(
             ['OTEL_EXPORTER_OTLP_ENDPOINT' => "{$base}/"],
             fn() => $this->tracer()->trace('trailing-slash', static fn() => null),
         );
@@ -369,32 +370,6 @@ final class SdkConfigurationTest extends TestCase
     private function env(string $key): string
     {
         return (string) $this->getContainer()->get(EnvironmentInterface::class)->get($key);
-    }
-
-    /**
-     * Runs `$call` with process env values replaced (`null` removes one) and puts the old values back.
-     *
-     * The SDK reads its settings from the process env when the tracer provider and the exporter are built,
-     * which happens on first use: this sets values that `#[Env]` cannot, such as ones built from the
-     * endpoint of Trap.
-     *
-     * @param array<string, ?string> $env
-     */
-    private function withProcessEnv(array $env, \Closure $call): mixed
-    {
-        $previous = [];
-        foreach ($env as $key => $value) {
-            $previous[$key] = \getenv($key);
-            \putenv($value === null ? $key : "{$key}={$value}");
-        }
-
-        try {
-            return $call();
-        } finally {
-            foreach ($previous as $key => $value) {
-                \putenv($value === false ? $key : "{$key}={$value}");
-            }
-        }
     }
 
     private function traceRoots(int $count): void

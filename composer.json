@@ -69,6 +69,7 @@
         "psr-4": {
             "Spiral\\OpenTelemetry\\Tests\\Acceptance\\": "tests/Acceptance",
             "Spiral\\OpenTelemetry\\Tests\\Feature\\": "tests/Feature",
+            "Spiral\\OpenTelemetry\\Tests\\Support\\": "tests/Support",
             "Spiral\\OpenTelemetry\\Tests\\Unit\\": "tests/Unit"
         }
     },

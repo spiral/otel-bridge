@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
-use Spiral\OpenTelemetry\Tests\Acceptance\Support\Process\PhpProcess;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\ReceivedSpan;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
+use Spiral\OpenTelemetry\Tests\Support\PhpProcess;
 use Testo\Assert;
 use Testo\Test;
 
