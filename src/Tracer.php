@@ -67,12 +67,20 @@ final class Tracer extends AbstractTracer
         ?TraceKind $traceKind = null,
         ?int $startTime = null,
     ): mixed {
-        $traceSpan = $this->getTraceSpan($name, $traceKind, $startTime);
+        $current = Context::getCurrent();
+        # An explicit parent overrides the active span, so the remote one is set only for a span with no
+        # local parent; otherwise every span of the request would hang off it directly.
+        $remote = $this->context !== [] && !OtelSpan::fromContext($current)->getContext()->isValid();
+        $traceSpan = $this->getTraceSpan($name, $traceKind, $startTime, $remote ? $current : null);
         $internalSpan = $this->createInternalSpan($name, $attributes);
 
         $scope = null;
         if ($scoped) {
-            $scope = $traceSpan->activate();
+            # The incoming baggage comes with the remote parent, so the code sees it and extends it.
+            if ($remote && Baggage::fromContext($current)->isEmpty()) {
+                $current = Baggage::fromContext($this->incoming())->storeInContext($current);
+            }
+            $scope = $traceSpan->storeInContext($current)->activate();
         }
 
         $this->running[] = [$traceSpan, $scoped];
@@ -115,10 +123,15 @@ final class Tracer extends AbstractTracer
             return $this->context;
         }
 
-        # The incoming baggage goes on with the trace, unless the code has activated baggage of its own.
-        if ($this->context !== [] && Baggage::fromContext($current)->isEmpty()) {
-            $current = Baggage::fromContext($this->incoming())->storeInContext($current);
-        }
+        # Baggage goes on with a running trace only: once the trace is over, as for the response headers,
+        # only the trace context is returned. A trace that is not scoped never activates the incoming
+        # baggage, so it is taken from the incoming context while nothing else is active.
+        $current = match (true) {
+            $top === false => Baggage::getEmpty()->storeInContext($current),
+            $this->context !== [] && Baggage::fromContext($current)->isEmpty()
+                => Baggage::fromContext($this->incoming())->storeInContext($current),
+            default => $current,
+        };
 
         $carrier = [];
         $this->propagator->inject($carrier, null, $span->storeInContext($current));
@@ -398,11 +411,13 @@ final class Tracer extends AbstractTracer
 
     /**
      * @param non-empty-string $name
+     * @param ContextInterface|null $remoteOver The context to put the remote parent in, when the span gets it.
      */
     private function getTraceSpan(
         string $name,
         ?TraceKind $traceKind,
         ?int $startTime,
+        ?ContextInterface $remoteOver,
     ): \OpenTelemetry\API\Trace\SpanInterface {
         $spanBuilder = $this->tracer
             ->spanBuilder($name)
@@ -412,11 +427,8 @@ final class Tracer extends AbstractTracer
             $spanBuilder->setStartTimestamp($startTime);
         }
 
-        # An explicit parent overrides the active span, so the remote one is set only for a span with no
-        # local parent; otherwise every span of the request would hang off it directly.
-        $current = Context::getCurrent();
-        if ($this->context !== [] && !OtelSpan::fromContext($current)->getContext()->isValid()) {
-            $spanBuilder->setParent(OtelSpan::fromContext($this->incoming())->storeInContext($current));
+        if ($remoteOver !== null) {
+            $spanBuilder->setParent(OtelSpan::fromContext($this->incoming())->storeInContext($remoteOver));
         }
 
         return $spanBuilder->startSpan();

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
+use OpenTelemetry\API\Baggage\Baggage;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
 use Spiral\Testing\Attribute\Env;
@@ -320,18 +321,54 @@ final class ContextPropagationTest extends TestCase
      * `OTEL_PROPAGATORS` defaults to `tracecontext,baggage`:
      * https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration
      */
-    public function contextKeepsIncomingBaggage(): void
+    #[DataSet([true], 'scoped')]
+    #[DataSet([false], 'not scoped')]
+    public function contextOfRunningTraceKeepsIncomingBaggage(bool $scoped): void
     {
         $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
         $headers = [];
 
         $tracer->trace('outer', static function () use ($tracer, &$headers): void {
             $headers['in outer'] = $tracer->getContext();
-        }, scoped: true);
-        $headers['after outer'] = $tracer->getContext();
+        }, scoped: $scoped);
 
         Assert::same($headers['in outer']['baggage'] ?? null, 'tenant=acme');
-        Assert::same($headers['after outer']['baggage'] ?? null, 'tenant=acme');
+    }
+
+    /**
+     * The trace is over, as when `Spiral\Http\Http` adds the context to the response: the trace context
+     * goes back, the baggage does not.
+     */
+    public function contextAfterTraceCarriesNoBaggage(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+
+        $tracer->trace('outer', static fn() => null, scoped: true);
+
+        Assert::same(\array_keys($tracer->getContext()), ['traceparent']);
+    }
+
+    /**
+     * The incoming baggage is current inside the scoped root, so the code reads it and extends it.
+     */
+    public function incomingBaggageIsCurrentInsideScopedRootAndExtendable(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+        $seen = null;
+        $headers = [];
+
+        $tracer->trace('outer', static function () use ($tracer, &$seen, &$headers): void {
+            $seen = Baggage::getCurrent()->getValue('tenant');
+            $scope = Baggage::getCurrent()->toBuilder()->set('user', 'alice')->build()->activate();
+            try {
+                $headers = $tracer->getContext();
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: true);
+
+        Assert::same($seen, 'acme');
+        Assert::same($headers['baggage'] ?? null, 'tenant=acme,user=alice');
     }
 
     #[Env('OTEL_PROPAGATORS', 'tracecontext')]
