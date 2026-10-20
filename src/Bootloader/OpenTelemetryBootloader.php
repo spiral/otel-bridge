@@ -35,6 +35,7 @@ use Psr\Container\ContainerInterface;
 use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\FinalizerInterface;
 use Spiral\OpenTelemetry\InstrumentationScope;
+use Spiral\OpenTelemetry\Propagation\LateBindingPropagator;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\ContextFinalizer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
@@ -74,25 +75,28 @@ final class OpenTelemetryBootloader extends Bootloader
     ): void {
         $telemetry->registerTracer('otel', TracerFactory::class);
 
-        if (self::sdkAutoloaded()) {
+        if (self::autoloadedProvider(report: true) !== null) {
             # Built now, so its flush is registered even if only hooks ever create spans.
             $container->get(TracerProviderInterface::class);
             $finalizer->addFinalizer(new ContextFinalizer());
             return;
         }
 
-        $propagator = $container->get(TextMapPropagatorInterface::class);
-        \assert($propagator instanceof TextMapPropagatorInterface);
         # The propagator goes with the provider: auto-instrumentation extracts the incoming context with
         # `Globals::propagator()`, and the no-op one would start a new trace under which every Spiral span nests.
+        # Both are taken from the container on first use, so they are the ones the app ends up binding.
+        /** @psalm-suppress InternalMethod The root, so nothing active at boot stays active for good */
         $registration = Context::storage()->attach(
             Configurator::create()
                 ->withTracerProvider(new LateBindingTracerProvider(
                     /** @psalm-suppress MixedReturnStatement The container binds the provider here */
                     static fn(): TracerProviderInterface => $container->get(TracerProviderInterface::class),
                 ))
-                ->withPropagator($propagator)
-                ->storeInContext(),
+                ->withPropagator(new LateBindingPropagator(
+                    /** @psalm-suppress MixedReturnStatement The container binds the propagator here */
+                    static fn(): TextMapPropagatorInterface => $container->get(TextMapPropagatorInterface::class),
+                ))
+                ->storeInContext(Context::getRoot()),
         );
         $finalizer->addFinalizer(new ContextFinalizer($registration));
     }
@@ -107,7 +111,7 @@ final class OpenTelemetryBootloader extends Bootloader
      */
     public function initTextMapPropagator(): TextMapPropagatorInterface
     {
-        return self::sdkAutoloaded() ? Globals::propagator() : (new PropagatorFactory())->create();
+        return self::autoloadedProvider() !== null ? Globals::propagator() : (new PropagatorFactory())->create();
     }
 
     public function initSpanProcessor(
@@ -137,16 +141,11 @@ final class OpenTelemetryBootloader extends Bootloader
      * With the SDK autoloader enabled, the provider is the global one, which the SDK shuts down itself.
      */
     public function initTraceProvider(
-        SpanProcessorInterface $spanProcessor,
         FinalizerInterface $finalizer,
         ContainerInterface $container,
     ): TracerProviderInterface {
-        if (self::sdkAutoloaded()) {
-            $provider = Globals::tracerProvider();
-            if (!$provider instanceof TracerProviderInterface) {
-                return new NoopTracerProvider();
-            }
-
+        $provider = self::autoloadedProvider();
+        if ($provider !== null) {
             $finalizer->addFinalizer(new TracerProviderFinalizer($provider, $container, owned: false));
 
             return $provider;
@@ -155,6 +154,9 @@ final class OpenTelemetryBootloader extends Bootloader
         if (Sdk::isDisabled()) {
             return new NoopTracerProvider();
         }
+
+        $spanProcessor = $container->get(SpanProcessorInterface::class);
+        \assert($spanProcessor instanceof SpanProcessorInterface);
 
         try {
             $sampler = (new SamplerFactory())->create();
@@ -202,6 +204,34 @@ final class OpenTelemetryBootloader extends Bootloader
                 return new NoopSuppressionStrategy();
             })(),
         };
+    }
+
+    /**
+     * The global provider the SDK autoloader has built, or null when the bridge builds its own.
+     *
+     * The autoloader decides when Composer loads, from the process env and ini, before the app reads its
+     * `.env`: `OTEL_PHP_AUTOLOAD_ENABLED` seen only by the app leaves `Globals` without an SDK provider, and
+     * the bridge then builds its own, reporting the setting it cannot follow.
+     */
+    private static function autoloadedProvider(bool $report = false): ?TracerProviderInterface
+    {
+        if (!self::sdkAutoloaded()) {
+            return null;
+        }
+
+        $provider = Globals::tracerProvider();
+        if ($provider instanceof TracerProviderInterface) {
+            return $provider;
+        }
+
+        if ($report && !Sdk::isDisabled()) {
+            self::logWarning(
+                'OTEL_PHP_AUTOLOAD_ENABLED is set, but the SDK autoloader has not configured the global tracer'
+                . ' provider; set it in the process environment or php.ini. The bridge builds its own provider.',
+            );
+        }
+
+        return null;
     }
 
     /**

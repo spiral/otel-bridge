@@ -16,6 +16,7 @@ use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Trace\NoopTracerProvider;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\NoopSpanProcessor;
+use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\Tracer;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
@@ -23,6 +24,7 @@ use Spiral\Boot\Finalizer;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
+use Spiral\OpenTelemetry\Tests\Support\TestEnv;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Config\TelemetryConfig;
@@ -58,7 +60,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
     {
         $bootloader = new OpenTelemetryBootloader();
 
-        $propagator = self::withProcessEnv(
+        $propagator = TestEnv::withProcessEnv(
             ['OTEL_PROPAGATORS' => $propagators],
             static fn() => $bootloader->initTextMapPropagator(),
         );
@@ -82,10 +84,10 @@ final class OpenTelemetryBootloaderTest extends TestCase
         $bootloader = new OpenTelemetryBootloader();
         $finalizer = new Finalizer();
 
-        [$processor, $provider] = self::withProcessEnv(['OTEL_SDK_DISABLED' => 'true'], static function () use ($bootloader, $finalizer): array {
+        [$processor, $provider] = TestEnv::withProcessEnv(['OTEL_SDK_DISABLED' => 'true'], static function () use ($bootloader, $finalizer): array {
             $processor = $bootloader->initSpanProcessor($bootloader->initSpanExporter());
 
-            return [$processor, $bootloader->initTraceProvider($processor, $finalizer, new Container())];
+            return [$processor, $bootloader->initTraceProvider($finalizer, new Container())];
         });
         $finalizer->finalize(false);
         $finalizer->finalize(true);
@@ -108,7 +110,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
     {
         $bootloader = new OpenTelemetryBootloader();
 
-        [$outer, $inner] = self::withProcessEnv($env, static fn(): array => self::nestedServerSpans($bootloader));
+        [$outer, $inner] = TestEnv::withProcessEnv($env, static fn(): array => self::nestedServerSpans($bootloader));
 
         Assert::same($inner->getContext()->getSpanId() === $outer->getContext()->getSpanId(), $suppressed);
     }
@@ -129,7 +131,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
         Logging::setLogWriter($log);
 
         try {
-            [$outer, $inner] = self::withProcessEnv(
+            [$outer, $inner] = TestEnv::withProcessEnv(
                 ['OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY' => 'bogus'],
                 static fn(): array => self::nestedServerSpans($bootloader),
             );
@@ -145,7 +147,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
     {
         $bootloader = new OpenTelemetryBootloader();
 
-        $span = self::withProcessEnv(
+        $span = TestEnv::withProcessEnv(
             ['OTEL_TRACES_SAMPLER' => 'always_off'],
             static fn() => self::startSpan($bootloader),
         );
@@ -172,7 +174,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
         Logging::setLogWriter($log);
 
         try {
-            $span = self::withProcessEnv(
+            $span = TestEnv::withProcessEnv(
                 ['OTEL_TRACES_SAMPLER' => 'bogus'],
                 static fn() => self::startSpan($bootloader),
             );
@@ -190,7 +192,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
     private static function nestedServerSpans(OpenTelemetryBootloader $bootloader): array
     {
         $tracer = $bootloader
-            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), new Container())
+            ->initTraceProvider(new Finalizer(), self::noopProcessorContainer())
             ->getTracer('test');
         $outer = $tracer->spanBuilder('outer')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
         $scope = $outer->activate();
@@ -202,37 +204,20 @@ final class OpenTelemetryBootloaderTest extends TestCase
         }
     }
 
+    private static function noopProcessorContainer(): Container
+    {
+        $container = new Container();
+        $container->bindSingleton(SpanProcessorInterface::class, NoopSpanProcessor::getInstance());
+
+        return $container;
+    }
+
     private static function startSpan(OpenTelemetryBootloader $bootloader): SpanInterface
     {
         return $bootloader
-            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), new Container())
+            ->initTraceProvider(new Finalizer(), self::noopProcessorContainer())
             ->getTracer('test')
             ->spanBuilder('root')
             ->startSpan();
-    }
-
-    /**
-     * Runs `$call` with process env values set, where the SDK reads them, and puts the old values back.
-     *
-     * @template T
-     * @param array<string, string> $env
-     * @param \Closure(): T $call
-     * @return T
-     */
-    private static function withProcessEnv(array $env, \Closure $call): mixed
-    {
-        $previous = [];
-        foreach ($env as $key => $value) {
-            $previous[$key] = \getenv($key);
-            \putenv("{$key}={$value}");
-        }
-
-        try {
-            return $call();
-        } finally {
-            foreach ($previous as $key => $value) {
-                \putenv($value === false ? $key : "{$key}={$value}");
-            }
-        }
     }
 }

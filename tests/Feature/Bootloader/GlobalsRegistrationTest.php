@@ -7,7 +7,12 @@ namespace Spiral\OpenTelemetry\Tests\Feature\Bootloader;
 use OpenTelemetry\API\Behavior\Internal\Logging;
 use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
 use OpenTelemetry\API\Globals;
+use OpenTelemetry\API\Trace\NoopTracerProvider;
+use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
+use OpenTelemetry\API\Trace\Span;
+use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\TracerInterface;
+use OpenTelemetry\Context\Propagation\NoopTextMapPropagator;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessor;
@@ -19,7 +24,6 @@ use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Spiral\OpenTelemetry\Trace\ContextFinalizer;
 use Testo\Assert;
 use Testo\Codecov\Covers;
-use Testo\Lifecycle\AfterTest;
 use Testo\Test;
 
 /**
@@ -31,9 +35,14 @@ use Testo\Test;
 #[Covers(ContextFinalizer::class)]
 final class GlobalsRegistrationTest extends TestCase
 {
-    public function globalPropagatorIsTheAppOne(): void
+    /**
+     * Taken from the container on first use, so a binding made after this bootloader is the global one too.
+     */
+    public function globalPropagatorIsTheOneTheAppBinds(): void
     {
-        Assert::same(Globals::propagator(), $this->getContainer()->get(TextMapPropagatorInterface::class));
+        $this->getContainer()->bindSingleton(TextMapPropagatorInterface::class, TraceContextPropagator::getInstance());
+
+        Assert::same(Globals::propagator()->fields(), TraceContextPropagator::getInstance()->fields());
     }
 
     public function globalSpansAreFlushedWithAppSpansAtRequestEnd(): void
@@ -50,13 +59,54 @@ final class GlobalsRegistrationTest extends TestCase
         Assert::same($exporter->calls, ['forceFlush']);
     }
 
+    /**
+     * Termination is not the end of a request: a span still active then is not reported.
+     */
+    public function spanActiveAtTerminationIsNotReported(): void
+    {
+        $this->useExporter();
+        $span = $this->getContainer()->get(TracerInterface::class)->spanBuilder('active')->startSpan();
+        $scope = $span->activate();
+
+        try {
+            $log = $this->logOf(fn() => $this->finalizer()->finalize(true));
+        } finally {
+            $scope->detach();
+            $span->end();
+        }
+
+        Assert::same($log, []);
+        Assert::instanceOf(Globals::propagator(), NoopTextMapPropagator::class);
+    }
+
+    /**
+     * Without the SDK autoloader the global propagator and provider are the no-op ones again.
+     */
     public function terminationTakesTheRegistrationBack(): void
     {
-        $propagator = $this->getContainer()->get(TextMapPropagatorInterface::class);
-
         $this->finalizer()->finalize(true);
 
-        Assert::notSame(Globals::propagator(), $propagator);
+        Assert::instanceOf(Globals::propagator(), NoopTextMapPropagator::class);
+        Assert::instanceOf(Globals::tracerProvider(), NoopTracerProvider::class);
+    }
+
+    /**
+     * The context `Globals` reads is built over the root: a span active when the app boots is not
+     * kept active by it.
+     */
+    public function registrationDoesNotKeepWhatIsActiveAtBoot(): void
+    {
+        $this->finalizer()->finalize(true);
+        $scope = Span::wrap(SpanContext::create('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331'))->activate();
+        try {
+            $app = $this->makeApp();
+            $active = Span::getCurrent()->getContext()->isValid();
+            $app->getContainer()->get(FinalizerInterface::class)->finalize(true);
+        } finally {
+            $scope->detach();
+        }
+
+        Assert::false($active);
     }
 
     public function spanLeftActiveAfterRequestIsReported(): void
@@ -78,12 +128,6 @@ final class GlobalsRegistrationTest extends TestCase
             "warning: A span is still active after the request or job has ended: trace {$id->getTraceId()}, span {$id->getSpanId()}. Every later span of the process will be its child.",
         ]);
         Assert::same($clean, []);
-    }
-
-    #[AfterTest]
-    public function terminate(): void
-    {
-        $this->finalizer()->finalize(true);
     }
 
     /**
