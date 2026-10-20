@@ -69,7 +69,9 @@ OTEL_PHP_TRACES_PROCESSOR=simple
 
 The exporter is created lazily, on the first export. The full list of variables is in the [OpenTelemetry SDK configuration](https://opentelemetry.io/docs/languages/sdk-configuration/).
 
-The trace context is read from and written to headers with the propagators of `OTEL_PROPAGATORS`, by default W3C Trace Context and Baggage.
+The trace context is read from and written to headers with the propagators of `OTEL_PROPAGATORS`, by default W3C Trace Context and Baggage. Other propagators need their package, for example `b3` needs `open-telemetry/extension-propagator-b3`: a name the SDK does not know is skipped with a warning, and with none left the propagator is a no-op one.
+
+`getContext()` returns the context of the span running where it is called, with the baggage, while a trace runs. Once the traces of a tracer have ended, as when `Spiral\Http\Http` adds the context to the response, it returns the trace context of the last finished outermost trace without baggage. The incoming baggage is current inside a scoped trace that takes the incoming parent, so code reads it with `Baggage::getCurrent()` and can extend it.
 
 With `OTEL_PHP_TRACES_PROCESSOR=batch` (the SDK default) spans are queued and flushed after every request or job,
 and on application shutdown, through the Spiral finalizer. Spans still queued are lost when the worker is killed hard,
@@ -83,7 +85,7 @@ A status set on a Spiral span is exported as the OpenTelemetry span status:
 - the integers `0`, `1` and `2` are the OTLP values of `Unset`, `Ok` and `Error`;
 - any other integer is taken for an HTTP status code: 1xx–3xx leave the status `Unset`, 4xx is `Error` except on a `SERVER` span, 5xx is `Error`, and a number out of the HTTP range is `Error`.
 
-When the traced callback throws, the span keeps its name and attributes and gets status `Error` with the exception message, unless the callback has set a status itself.
+When the traced callback throws, the span keeps its name and attributes and gets status `Error` with the exception message, unless the callback set `Ok` or `Error`.
 
 ## Auto-instrumentation with ext-opentelemetry
 
@@ -92,21 +94,23 @@ The bridge works with and without the [`opentelemetry` extension](https://opente
 The spans of those hooks and the Spiral spans form one trace and go through one SDK pipeline:
 
 - When the app boots, the bridge registers its tracer provider and propagator as the global ones that auto-instrumentation takes from `OpenTelemetry\API\Globals`. The provider is still built on first use. Spans of hooks are flushed together with the Spiral spans at the end of each request or job, so under RoadRunner they are not held until the worker exits.
-- With `OTEL_PHP_AUTOLOAD_ENABLED=true` the SDK autoloader configures the global provider and propagator, from the env or from `OTEL_CONFIG_FILE`, and the bridge takes them from `Globals`. The bridge flushes that provider after every request or job, while shutting it down is left to the SDK at process exit.
-- Spans that hooks start while the exporter sends a batch, like the PSR-18 or curl request of the OTLP exporter itself, are not sampled, so that every flush does not send a new trace of its own. This relies on a parent-based sampler, the SDK default.
+- With `OTEL_PHP_AUTOLOAD_ENABLED=true` the SDK autoloader configures the global provider and propagator, from the env or from `OTEL_CONFIG_FILE`, and the bridge takes them from `Globals`. The bridge flushes that provider after every request or job, while shutting it down is left to the SDK at process exit. The autoloader decides when Composer loads, so the variable has to be in the process environment or `php.ini`: set only in `.env`, it is reported and the bridge builds its own provider.
+- Spans that hooks start while the exporter sends a batch, like the PSR-18 or curl request of the OTLP exporter itself, are not recorded, so that every flush does not send a new trace of its own.
 
 ### PSR-15
 
-The HTTP stack of Spiral is PSR-15, so `open-telemetry/opentelemetry-auto-psr15` hooks into it. With the provider built by the bridge, the spans it would double are suppressed:
+The HTTP stack of Spiral is PSR-15, so `open-telemetry/opentelemetry-auto-psr15` hooks into it. With the provider built by the bridge, the spans in which it doubles Spiral are suppressed, and the tree of a request is the same as without the extension:
 
-- its `SERVER` span is the root of the request, and the `SERVER` span of Spiral is suppressed inside it, as is any span inside a span of the same kind, `INTERNAL` aside;
+- its `SERVER` span of `Spiral\Http\Http::handle()` is suppressed, and the `SERVER` span of Spiral stays the root of the request, under the incoming parent;
 - its `INTERNAL` spans of every request handler and middleware are suppressed, as Spiral traces its middleware pipeline itself.
 
-The tree is then the same as without the extension, except for the root span, which carries the attributes of the psr15 instrumentation. If you prefer the Spiral `SERVER` span, disable that instrumentation instead:
+Disabling that instrumentation gives the same tree:
 
 ```dotenv
 OTEL_PHP_DISABLED_INSTRUMENTATIONS=psr15
 ```
+
+Nothing else is suppressed: a request handled inside a request or a job run inside a job keeps both spans. Suppression by span kind or by semantic conventions is opt-in, with `OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY=spankind` or `semconv`, as the SDK reads it.
 
 With `OTEL_PHP_AUTOLOAD_ENABLED=true` the provider comes from the SDK, so the bridge cannot suppress anything: disable psr15 or configure suppression in the SDK.
 
@@ -116,9 +120,12 @@ Spans of hooks nest under the active span. A Spiral trace that is not `scoped`, 
 
 ## Upgrading to 2.0
 
-- The instrumentation scope of the Spiral spans is `spiral/otel-bridge` with the package version, not `OTEL_SERVICE_NAME`. The service name stays a resource attribute.
-- The propagator is built from `OTEL_PROPAGATORS` and is a singleton. By default it is `tracecontext,baggage`, so `getContext()` passes `baggage` on too.
+- The instrumentation scope of the Spiral spans is `spiral/otel-bridge` with the package version, not `OTEL_SERVICE_NAME`. The service name stays a resource attribute. The version comes from `resources/version.json`, the release manifest, which moved there from `.github/`.
+- The propagator is built from `OTEL_PROPAGATORS`, by default `tracecontext,baggage`, and is a singleton.
+- The tracer provider and propagator are registered in `Globals` from boot until the app terminates; with `OTEL_PHP_AUTOLOAD_ENABLED=true` in the process environment they are taken from there instead.
 - Status codes: integers and unknown strings no longer give `Ok`, see [Span status](#span-status).
-- `getContext()` returns the context of the span running where it is called; after all traces have ended, that of the last finished outermost one.
-- The bridge registers its tracer provider and propagator in `Globals` at boot, or with `OTEL_PHP_AUTOLOAD_ENABLED=true` takes them from there.
-- `open-telemetry/sdk` 1.9 or newer is required, up to the latest minor version tested.
+- A callback that throws makes the span `Error` with the exception message and keeps the name and attributes set in it.
+- `getContext()` returns the context of the span running where it is called, with the baggage; after all traces have ended, the trace context of the last finished outermost one, without baggage.
+- With `opentelemetry-auto-psr15`, its spans that double Spiral ones are suppressed.
+- `OpenTelemetryBootloader::initTraceProvider()` takes the span processor from the container instead of a parameter.
+- Dependencies: `open-telemetry/sdk` `>=1.9 <1.16`, `open-telemetry/api` `^1.7`, `open-telemetry/context` `^1.4`; `open-telemetry/opentelemetry-auto-psr15` conflicts outside `>=1.0.6 <1.4`.
