@@ -97,24 +97,48 @@ final class OpenTelemetryBootloaderTest extends TestCase
     }
 
     /**
-     * A SERVER span inside a SERVER span, as the Spiral one inside that of `opentelemetry-auto-psr15`,
-     * takes the ids of the outer one.
+     * `OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY` as the SDK reads it from 1.15: by default nothing is
+     * suppressed, `spankind` and `semconv` suppress a SERVER span inside a SERVER span.
      */
-    public function providerSuppressesSpanInsideSpanOfSameKind(): void
+    #[DataSet([[], false], 'default')]
+    #[DataSet([['OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY' => 'none'], false], 'none')]
+    #[DataSet([['OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY' => ' SpanKind '], true], 'spankind')]
+    #[DataSet([['OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY' => 'semconv'], true], 'semconv')]
+    public function spanSuppressionComesFromEnv(array $env, bool $suppressed): void
     {
-        $tracer = (new OpenTelemetryBootloader())
-            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), new Container())
-            ->getTracer('test');
-        $outer = $tracer->spanBuilder('outer')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
-        $scope = $outer->activate();
+        $bootloader = new OpenTelemetryBootloader();
+
+        [$outer, $inner] = self::withProcessEnv($env, static fn(): array => self::nestedServerSpans($bootloader));
+
+        Assert::same($inner->getContext()->getSpanId() === $outer->getContext()->getSpanId(), $suppressed);
+    }
+
+    public function unknownSpanSuppressionStrategyIsReported(): void
+    {
+        $bootloader = new OpenTelemetryBootloader();
+        $log = new class implements LogWriterInterface {
+            /** @var list<string> */
+            public array $entries = [];
+
+            #[\Override]
+            public function write($level, string $message, array $context): void
+            {
+                $this->entries[] = "{$level}: {$message}";
+            }
+        };
+        Logging::setLogWriter($log);
 
         try {
-            $inner = $tracer->spanBuilder('inner')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
+            [$outer, $inner] = self::withProcessEnv(
+                ['OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY' => 'bogus'],
+                static fn(): array => self::nestedServerSpans($bootloader),
+            );
         } finally {
-            $scope->detach();
+            Logging::reset();
         }
 
-        Assert::same($inner->getContext()->getSpanId(), $outer->getContext()->getSpanId());
+        Assert::notSame($inner->getContext()->getSpanId(), $outer->getContext()->getSpanId());
+        Assert::same($log->entries, ['warning: Unknown span suppression strategy "bogus", none is used']);
     }
 
     public function samplerComesFromEnv(): void
@@ -158,6 +182,24 @@ final class OpenTelemetryBootloaderTest extends TestCase
 
         Assert::true($span->getContext()->isSampled());
         Assert::same($log->entries, ['warning: Unable to create sampler']);
+    }
+
+    /**
+     * @return array{SpanInterface, SpanInterface} A SERVER span and one started inside it.
+     */
+    private static function nestedServerSpans(OpenTelemetryBootloader $bootloader): array
+    {
+        $tracer = $bootloader
+            ->initTraceProvider(NoopSpanProcessor::getInstance(), new Finalizer(), new Container())
+            ->getTracer('test');
+        $outer = $tracer->spanBuilder('outer')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
+        $scope = $outer->activate();
+
+        try {
+            return [$outer, $tracer->spanBuilder('inner')->setSpanKind(SpanKind::KIND_SERVER)->startSpan()];
+        } finally {
+            $scope->detach();
+        }
     }
 
     private static function startSpan(OpenTelemetryBootloader $bootloader): SpanInterface

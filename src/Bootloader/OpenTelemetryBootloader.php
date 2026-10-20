@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Bootloader;
 
+use Nevay\SPI\ServiceLoader;
 use OpenTelemetry\API\Behavior\LogsMessagesTrait;
 use OpenTelemetry\API\Globals;
 use OpenTelemetry\API\Instrumentation\Configurator;
 use OpenTelemetry\API\Trace\LateBindingTracerProvider;
+use OpenTelemetry\API\Trace\SpanSuppression\SemanticConventionResolver;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
@@ -23,6 +25,10 @@ use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\NoopSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorFactory;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
+use OpenTelemetry\SDK\Trace\SpanSuppression\NoopSuppressionStrategy\NoopSuppressionStrategy;
+use OpenTelemetry\SDK\Trace\SpanSuppression\SemanticConventionSuppressionStrategy\SemanticConventionSuppressionStrategy;
+use OpenTelemetry\SDK\Trace\SpanSuppression\SpanKindSuppressionStrategy\SpanKindSuppressionStrategy;
+use OpenTelemetry\SDK\Trace\SpanSuppression\SpanSuppressionStrategy;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Psr\Container\ContainerInterface;
@@ -43,6 +49,7 @@ final class OpenTelemetryBootloader extends Bootloader
 {
     use LogsMessagesTrait;
 
+    private const SPAN_SUPPRESSION_STRATEGY = 'OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY';
     protected const SINGLETONS = [
         TextMapPropagatorInterface::class => [self::class, 'initTextMapPropagator'],
         TracerInterface::class => [self::class, 'initTracer'],
@@ -159,7 +166,7 @@ final class OpenTelemetryBootloader extends Bootloader
         $provider = new TracerProvider(
             $spanProcessor,
             $sampler,
-            spanSuppressionStrategy: new DuplicateSpanSuppressionStrategy(),
+            spanSuppressionStrategy: new DuplicateSpanSuppressionStrategy(self::spanSuppressionStrategy()),
         );
         $providerFinalizer = new TracerProviderFinalizer($provider, $container);
         # At exit PHP runs shutdown functions before the kernel destructor calls finalize(true), and after
@@ -170,6 +177,31 @@ final class OpenTelemetryBootloader extends Bootloader
         $finalizer->addFinalizer($providerFinalizer);
 
         return $provider;
+    }
+
+    /**
+     * The strategy `OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY` names, as the SDK reads it from 1.15:
+     * `spankind`, `semconv` or `none`, the default.
+     */
+    private static function spanSuppressionStrategy(): SpanSuppressionStrategy
+    {
+        try {
+            $name = Configuration::has(self::SPAN_SUPPRESSION_STRATEGY)
+                ? \strtolower(\trim(Configuration::getString(self::SPAN_SUPPRESSION_STRATEGY, 'none')))
+                : 'none';
+        } catch (\Throwable) {
+            $name = '';
+        }
+
+        return match ($name) {
+            'none' => new NoopSuppressionStrategy(),
+            'spankind' => new SpanKindSuppressionStrategy(),
+            'semconv' => new SemanticConventionSuppressionStrategy(ServiceLoader::load(SemanticConventionResolver::class)),
+            default => (static function () use ($name): SpanSuppressionStrategy {
+                self::logWarning(\sprintf('Unknown span suppression strategy "%s", none is used', $name));
+                return new NoopSuppressionStrategy();
+            })(),
+        };
     }
 
     /**

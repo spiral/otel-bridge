@@ -7,9 +7,11 @@ namespace Spiral\OpenTelemetry\Tests\Feature;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\TracerInterface;
+use OpenTelemetry\Context\Context;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
+use OpenTelemetry\SDK\Trace\SpanSuppression\SpanKindSuppressionStrategy\SpanKindSuppressionStrategy;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Trace\DuplicateSpanSuppressionStrategy;
@@ -23,40 +25,59 @@ use Testo\Test;
 
 /**
  * The spans of `opentelemetry-auto-psr15` around a Spiral request, made here with a tracer of its
- * instrumentation scope, the way its hooks make them.
+ * instrumentation scope and the attributes its hooks set before starting a span.
  */
 #[Test]
 #[Covers(DuplicateSpanSuppressionStrategy::class)]
 final class DuplicateSpanSuppressionTest
 {
+    private const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
+    private const REMOTE_SPAN_ID = '00f067aa0ba902b7';
+
     private InMemoryExporter $exporter;
     private TracerProvider $provider;
 
     #[BeforeTest]
     public function createProvider(): void
     {
-        $this->exporter = new InMemoryExporter();
-        $this->provider = new TracerProvider(
-            new SimpleSpanProcessor($this->exporter),
-            spanSuppressionStrategy: new DuplicateSpanSuppressionStrategy(),
-        );
+        $this->useStrategy(new DuplicateSpanSuppressionStrategy());
     }
 
-    public function serverSpanOfAppInsidePsr15ServerSpanIsSuppressed(): void
+    /**
+     * psr15 up to 1.1 names the class in `code.namespace`, from 1.2 in `code.function.name`.
+     */
+    #[DataSet([['code.function.name' => 'handle', 'code.namespace' => 'Spiral\Http\Http']], 'psr15 1.1')]
+    #[DataSet([['code.function.name' => 'Spiral\Http\Http::handle']], 'psr15 1.2')]
+    public function psr15ServerSpanOfHttpIsSuppressedAndSpiralOneTakesTheRemoteParent(array $attributes): void
     {
         $tracer = $this->tracer();
+        $remote = TraceContextPropagator::getInstance()->extract([
+            'traceparent' => '00-' . self::TRACE_ID . '-' . self::REMOTE_SPAN_ID . '-01',
+        ]);
 
         $this->inSpan($this->psr15(), 'GET', SpanKind::KIND_SERVER, static fn() => $tracer->trace(
             'GET /ping',
-            static fn() => $tracer->trace('handler', static fn() => null, scoped: true),
+            static fn() => null,
             scoped: true,
             traceKind: TraceKind::SERVER,
-        ));
+        ), $attributes, $remote);
 
-        [$handler, $server] = $this->exported();
-        Assert::same($server->getName(), 'GET');
-        Assert::same($handler->getName(), 'handler');
-        Assert::same($handler->getParentSpanId(), $server->getSpanId());
+        $spans = $this->exported();
+        Assert::count($spans, 1);
+        Assert::same($spans[0]->getName(), 'GET /ping');
+        Assert::same($spans[0]->getTraceId(), self::TRACE_ID);
+        Assert::same($spans[0]->getParentSpanId(), self::REMOTE_SPAN_ID);
+        Assert::true($spans[0]->getParentContext()->isRemote());
+    }
+
+    #[DataSet([['code.function.name' => 'handle', 'code.namespace' => 'App\Handler']], 'psr15 1.1')]
+    #[DataSet([['code.function.name' => 'App\Handler::handle']], 'psr15 1.2')]
+    #[DataSet([[]], 'no code attributes')]
+    public function psr15ServerSpanOfOtherHandlerIsKept(array $attributes): void
+    {
+        $this->inSpan($this->psr15(), 'GET', SpanKind::KIND_SERVER, static fn() => null, $attributes);
+
+        Assert::same(self::names($this->exported()), ['GET']);
     }
 
     /**
@@ -67,80 +88,98 @@ final class DuplicateSpanSuppressionTest
         $tracer = $this->tracer();
         $psr15 = $this->psr15();
 
-        $this->inSpan($psr15, 'GET', SpanKind::KIND_SERVER, fn() => $tracer->trace(
-            'Middleware processing',
-            fn() => $this->inSpan($psr15, 'Middleware::process', SpanKind::KIND_INTERNAL, static fn() => $tracer->trace(
-                'handler',
-                static fn() => null,
-            )),
-            scoped: true,
-        ));
+        $tracer->trace('Middleware processing', fn() => $this->inSpan(
+            $psr15,
+            'Middleware::process',
+            SpanKind::KIND_INTERNAL,
+            static fn() => $tracer->trace('handler', static fn() => null),
+        ), scoped: true);
 
-        [$handler, $middleware, $server] = $this->exported();
-        Assert::same($middleware->getName(), 'Middleware processing');
+        [$handler, $middleware] = $this->exported();
+        Assert::same(self::names($this->exported()), ['handler', 'Middleware processing']);
         Assert::same($handler->getParentSpanId(), $middleware->getSpanId());
-        Assert::same($middleware->getParentSpanId(), $server->getSpanId());
-    }
-
-    #[DataSet([SpanKind::KIND_CLIENT, TraceKind::CLIENT], 'client')]
-    #[DataSet([SpanKind::KIND_PRODUCER, TraceKind::PRODUCER], 'producer')]
-    #[DataSet([SpanKind::KIND_CONSUMER, TraceKind::CONSUMER], 'consumer')]
-    public function spanOfOtherScopeInsideSpanOfSameKindIsSuppressed(int $kind, TraceKind $traceKind): void
-    {
-        $tracer = $this->tracer();
-
-        $tracer->trace('outer', fn() => $this->inSpan(
-            $this->provider->getTracer('hook'),
-            'inner',
-            $kind,
-            static fn() => null,
-        ), scoped: true, traceKind: $traceKind);
-
-        Assert::same(\array_map(static fn(SpanDataInterface $s): string => $s->getName(), $this->exported()), ['outer']);
     }
 
     /**
-     * Suppression goes by the kind of the outer span, whatever lies between.
+     * Nothing else is suppressed: a request handled inside a request, a job run synchronously inside a job.
      */
-    public function spanInsideSpanOfSameKindIsSuppressedAtAnyDepth(): void
+    #[DataSet([TraceKind::SERVER], 'server in server')]
+    #[DataSet([TraceKind::CONSUMER], 'consumer in consumer')]
+    #[DataSet([TraceKind::CLIENT], 'client in client')]
+    public function spanInsideSpanOfSameKindIsKept(TraceKind $kind): void
     {
         $tracer = $this->tracer();
 
-        $tracer->trace('outer', static fn() => $tracer->trace(
-            'between',
-            static fn() => $tracer->trace('inner', static fn() => null, scoped: true, traceKind: TraceKind::CLIENT),
-            scoped: true,
-        ), scoped: true, traceKind: TraceKind::CLIENT);
-
-        Assert::same(\array_map(static fn(SpanDataInterface $s): string => $s->getName(), $this->exported()), ['between', 'outer']);
-    }
-
-    public function internalSpanOfOtherScopeIsKept(): void
-    {
-        $tracer = $this->tracer();
-
-        $tracer->trace('outer', fn() => $this->inSpan(
-            $this->provider->getTracer('hook'),
-            'inner',
-            SpanKind::KIND_INTERNAL,
-            static fn() => null,
-        ), scoped: true);
+        $tracer->trace('outer', static fn() => $tracer->trace('inner', static fn() => null, scoped: true, traceKind: $kind), scoped: true, traceKind: $kind);
 
         [$inner, $outer] = $this->exported();
         Assert::same($inner->getParentSpanId(), $outer->getSpanId());
     }
 
-    public function serverSpanOfPsr15WithoutParentIsKept(): void
+    public function spanOfOtherScopeIsLeftToTheGivenStrategy(): void
     {
-        $this->inSpan($this->psr15(), 'GET', SpanKind::KIND_SERVER, static fn() => null);
+        $this->useStrategy(new DuplicateSpanSuppressionStrategy(new SpanKindSuppressionStrategy()));
+        $tracer = $this->tracer();
 
-        Assert::same($this->exported()[0]->getName(), 'GET');
+        $tracer->trace('outer', fn() => $this->inSpan(
+            $this->provider->getTracer('hook'),
+            'inner',
+            SpanKind::KIND_CLIENT,
+            static fn() => null,
+        ), scoped: true, traceKind: TraceKind::CLIENT);
+
+        Assert::same(self::names($this->exported()), ['outer']);
     }
 
-    private function inSpan(TracerInterface $tracer, string $name, int $kind, \Closure $body): void
+    public function psr15ServerSpanOfOtherHandlerIsLeftToTheGivenStrategy(): void
     {
-        $span = $tracer->spanBuilder($name)->setSpanKind($kind)->startSpan();
-        $scope = $span->activate();
+        $this->useStrategy(new DuplicateSpanSuppressionStrategy(new SpanKindSuppressionStrategy()));
+        $tracer = $this->tracer();
+
+        $tracer->trace('outer', fn() => $this->inSpan(
+            $this->psr15(),
+            'GET',
+            SpanKind::KIND_SERVER,
+            static fn() => null,
+            ['code.function.name' => 'App\Handler::handle'],
+        ), scoped: true, traceKind: TraceKind::SERVER);
+
+        Assert::same(self::names($this->exported()), ['outer']);
+    }
+
+    /**
+     * @param list<SpanDataInterface> $spans
+     * @return list<string>
+     */
+    private static function names(array $spans): array
+    {
+        return \array_map(static fn(SpanDataInterface $s): string => $s->getName(), $spans);
+    }
+
+    private function useStrategy(DuplicateSpanSuppressionStrategy $strategy): void
+    {
+        $this->exporter = new InMemoryExporter();
+        $this->provider = new TracerProvider(new SimpleSpanProcessor($this->exporter), spanSuppressionStrategy: $strategy);
+    }
+
+    /**
+     * Runs `$body` inside a span made the way the hooks of psr15 make it: attributes set before the start,
+     * the span stored over its parent.
+     *
+     * @param array<non-empty-string, string> $attributes
+     */
+    private function inSpan(
+        TracerInterface $tracer,
+        string $name,
+        int $kind,
+        \Closure $body,
+        array $attributes = [],
+        ?\OpenTelemetry\Context\ContextInterface $parent = null,
+    ): void {
+        $builder = $tracer->spanBuilder($name)->setSpanKind($kind)->setAttributes($attributes);
+        $parent === null or $builder->setParent($parent);
+        $span = $builder->startSpan();
+        $scope = Context::storage()->attach($span->storeInContext($parent ?? Context::getCurrent()));
         try {
             $body();
         } finally {

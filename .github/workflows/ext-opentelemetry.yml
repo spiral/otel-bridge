@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   auto-instrumentation:
-    name: PHP ${{ matrix.php }}, ${{ matrix.dependencies }}
+    name: ext-opentelemetry, PHP ${{ matrix.php }}, ${{ matrix.dependencies }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -44,7 +44,7 @@ jobs:
       - name: Add auto-instrumentation
         run: >-
           composer require --dev --no-update --no-interaction
-          open-telemetry/opentelemetry-auto-psr15:^1.1 open-telemetry/opentelemetry-auto-psr18:^1.1
+          open-telemetry/opentelemetry-auto-psr15:^1.0.6 open-telemetry/opentelemetry-auto-psr18:^1.1
 
       - name: Install Composer dependencies
         uses: ramsey/composer-install@v3
@@ -56,3 +56,5 @@ jobs:
 
       - name: Execute Tests
         run: vendor/bin/testo --path=tests/Acceptance/AutoInstrumentationTest.php
+        env:
+          REQUIRE_EXT: '1'
