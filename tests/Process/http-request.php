@@ -2,8 +2,9 @@
 
 /**
  * Serves one HTTP request with a Spiral app, the way a RoadRunner worker does: the request, then
- * finalize(false). The handler calls a PSR-18 client inside a scoped `handler` trace. Then the app
- * terminates, a span is ended with the global tracer provider, and the process exits.
+ * finalize(false). The handler calls a PSR-18 client inside a scoped `handler` trace. Then a span
+ * `between requests` is ended with the global tracer provider, the app terminates, a span
+ * `after terminate` is ended the same way, and the process exits.
  *
  * The OTEL_* env of the process configures the SDK. `SCENARIO_TRACEPARENT` is the incoming `traceparent`.
  * Written to stdout: `response: <traceparent of the response>`, `flushed` and `terminated`.
@@ -107,6 +108,8 @@ $finalizer = $container->get(FinalizerInterface::class);
 $finalizer->finalize(false);
 echo "flushed\n";
 
+# Exported only by a later flush: the spans of the request going out before it are flushed at its end.
+Globals::tracerProvider()->getTracer('scenario')->spanBuilder('between requests')->startSpan()->end();
 $finalizer->finalize(true);
 Globals::tracerProvider()->getTracer('scenario')->spanBuilder('after terminate')->startSpan()->end();
 echo "terminated\n";

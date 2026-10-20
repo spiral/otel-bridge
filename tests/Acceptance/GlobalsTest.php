@@ -53,6 +53,7 @@ final class GlobalsTest extends TestCase
         Assert::same($server->parentSpanId, self::REMOTE_SPAN_ID);
         Assert::same($handler->traceId, self::TRACE_ID);
         Assert::same($handler->export, $server->export, "Received:\n{$spans}");
+        Assert::true($handler->export < $spans->named('between requests')->export, "Received:\n{$spans}");
     }
 
     /**
