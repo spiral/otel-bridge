@@ -364,8 +364,8 @@ final class Tracer extends AbstractTracer
         $status = $from->getStatus();
         $code = $status === null ? StatusCode::STATUS_UNSET : self::normalizeStatusCode($status->code, $traceKind);
 
-        if ($code !== StatusCode::STATUS_UNSET) {
-            $to->setStatus($code, $status?->description);
+        if ($status !== null && $code !== StatusCode::STATUS_UNSET) {
+            $to->setStatus($code, $status->description);
         } elseif ($error !== null) {
             $to->setStatus(StatusCode::STATUS_ERROR, $error->getMessage());
         }

@@ -6,10 +6,14 @@ namespace Spiral\OpenTelemetry\Tests\Feature;
 
 use OpenTelemetry\API\Behavior\Internal\Logging;
 use OpenTelemetry\API\Behavior\Internal\LogWriter\LogWriterInterface;
+use OpenTelemetry\API\Baggage\Baggage;
+use OpenTelemetry\API\Baggage\Propagation\BaggagePropagator;
 use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\Context\Context;
+use OpenTelemetry\Context\Propagation\MultiTextMapPropagator;
+use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
@@ -461,13 +465,18 @@ final class TracerExportTest
         };
         Logging::setLogWriter($log);
 
+        # The incoming context is extracted once, so the warning comes once however often it is read.
+        $inside = [];
         try {
-            $tracer->trace('test', static fn() => null);
+            $tracer->trace('test', static function () use ($tracer, &$inside): void {
+                $inside = $tracer->getContext();
+            });
         } finally {
             Logging::reset();
         }
 
         Assert::same((string) $this->exporter->getSpans()[0]->getContext()->getTraceState(), '');
+        Assert::false(isset($inside['tracestate']));
         Assert::false(isset($tracer->getContext()['tracestate']));
         Assert::same($log->levels, ['warning']);
     }
@@ -547,6 +556,103 @@ final class TracerExportTest
     }
 
     /**
+     * The incoming baggage is current inside a scoped trace that takes the remote parent, so the code
+     * reads and extends it; outside, nothing is activated.
+     */
+    #[DataSet([true, 'acme'], 'scoped')]
+    #[DataSet([false, null], 'not scoped')]
+    public function incomingBaggageIsCurrentInsideScopedRoot(bool $scoped, ?string $expected): void
+    {
+        $tracer = $this->createBaggageTracer();
+        $seen = 'none';
+
+        $tracer->trace('root', static function () use (&$seen): void {
+            $seen = Baggage::getCurrent()->getValue('tenant');
+        }, scoped: $scoped);
+
+        Assert::same($seen, $expected);
+    }
+
+    /**
+     * A nested trace has a local parent, so the baggage active in it is whatever the code made current.
+     */
+    public function incomingBaggageIsNotActivatedForNestedTrace(): void
+    {
+        $tracer = $this->createBaggageTracer();
+        $seen = 'none';
+
+        $tracer->trace('root', static function () use ($tracer, &$seen): void {
+            $scope = Baggage::getBuilder()->set('user', 'alice')->build()->activate();
+            try {
+                $tracer->trace('nested', static function () use (&$seen): void {
+                    $seen = \array_keys(\iterator_to_array(Baggage::getCurrent()->getAll()));
+                }, scoped: true);
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: true);
+
+        Assert::same($seen, ['user']);
+    }
+
+    #[DataSet([true], 'scoped')]
+    #[DataSet([false], 'not scoped')]
+    public function contextOfRunningTraceCarriesIncomingBaggage(bool $scoped): void
+    {
+        $tracer = $this->createBaggageTracer();
+        $context = [];
+
+        $tracer->trace('root', static function () use ($tracer, &$context): void {
+            $context = $tracer->getContext();
+        }, scoped: $scoped);
+
+        Assert::same($context['baggage'] ?? null, 'tenant=acme');
+    }
+
+    public function contextCarriesBaggageTheCodeActivated(): void
+    {
+        $tracer = $this->createBaggageTracer();
+        $context = [];
+
+        $tracer->trace('root', static function () use ($tracer, &$context): void {
+            $scope = Baggage::getBuilder()->set('user', 'alice')->build()->activate();
+            try {
+                $context = $tracer->getContext();
+            } finally {
+                $scope->detach();
+            }
+        });
+
+        Assert::same($context['baggage'] ?? null, 'user=alice');
+    }
+
+    /**
+     * After the trace, as for the response headers, only the trace context goes back.
+     */
+    public function contextAfterTraceCarriesNoBaggage(): void
+    {
+        $tracer = $this->createBaggageTracer();
+
+        $tracer->trace('root', static fn() => null, scoped: true);
+
+        Assert::same(\array_keys($tracer->getContext()), ['traceparent']);
+    }
+
+    public function contextWithoutIncomingContextCarriesNoBaggage(): void
+    {
+        $tracer = $this->createTracer(
+            propagator: new MultiTextMapPropagator([TraceContextPropagator::getInstance(), BaggagePropagator::getInstance()]),
+        );
+        $context = [];
+
+        $tracer->trace('root', static function () use ($tracer, &$context): void {
+            $context = $tracer->getContext();
+        }, scoped: true);
+
+        Assert::same(\array_keys($context), ['traceparent']);
+    }
+
+    /**
      * Traces in fibers sharing a tracer end out of order: the one started first ends first here.
      */
     public function contextFollowsTracesEndingOutOfOrder(): void
@@ -605,13 +711,21 @@ final class TracerExportTest
         return $levels === 0 ? [] : [self::nest($levels - 1)];
     }
 
-    private function createTracer(array $context = []): Tracer
+    private function createTracer(array $context = [], ?TextMapPropagatorInterface $propagator = null): Tracer
     {
         return new Tracer(
             new Container(),
             $this->provider->getTracer('test'),
-            TraceContextPropagator::getInstance(),
+            $propagator ?? TraceContextPropagator::getInstance(),
             $context,
+        );
+    }
+
+    private function createBaggageTracer(): Tracer
+    {
+        return $this->createTracer(
+            ['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme'],
+            new MultiTextMapPropagator([TraceContextPropagator::getInstance(), BaggagePropagator::getInstance()]),
         );
     }
 

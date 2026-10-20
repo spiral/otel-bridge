@@ -18,10 +18,14 @@ use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use Spiral\Boot\FinalizerInterface;
+use Spiral\Config\ConfiguratorInterface;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
+use Spiral\OpenTelemetry\Propagation\LateBindingPropagator;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\RecordingSpanExporter;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Spiral\OpenTelemetry\Trace\ContextFinalizer;
+use Spiral\OpenTelemetry\TracerFactory;
+use Spiral\Telemetry\Config\TelemetryConfig;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Test;
@@ -33,6 +37,7 @@ use Testo\Test;
 #[Test]
 #[Covers(OpenTelemetryBootloader::class)]
 #[Covers(ContextFinalizer::class)]
+#[Covers(LateBindingPropagator::class)]
 final class GlobalsRegistrationTest extends TestCase
 {
     /**
@@ -107,6 +112,23 @@ final class GlobalsRegistrationTest extends TestCase
         }
 
         Assert::false($active);
+    }
+
+    /**
+     * The whole life of an app booted here, as the boot of the test app runs before the test.
+     */
+    public function bootRegistersTheDriverAndGlobalsUntilTermination(): void
+    {
+        $this->finalizer()->finalize(true);
+
+        $container = $this->makeApp()->getContainer();
+        $driver = $container->get(ConfiguratorInterface::class)->getConfig(TelemetryConfig::CONFIG)['drivers']['otel'] ?? null;
+        $propagator = Globals::propagator();
+        $container->get(FinalizerInterface::class)->finalize(true);
+
+        Assert::same($driver, TracerFactory::class);
+        Assert::instanceOf($propagator, LateBindingPropagator::class);
+        Assert::instanceOf(Globals::propagator(), NoopTextMapPropagator::class);
     }
 
     public function spanLeftActiveAfterRequestIsReported(): void

@@ -42,8 +42,27 @@ final class InstrumentationScopeTest
         Assert::same($version, $expected);
     }
 
-    public function missingManifestGivesNoVersion(): void
+    #[DataSet([__DIR__ . '/no-such-version.json'], 'missing')]
+    #[DataSet([__DIR__], 'a directory')]
+    public function manifestThatIsNoFileGivesNoVersion(string $path): void
     {
-        Assert::null(InstrumentationScope::readVersion(__DIR__ . '/no-such-version.json'));
+        Assert::null(InstrumentationScope::readVersion($path));
+    }
+
+    /**
+     * Read once: a version cached by the first call is returned as is.
+     */
+    public function versionIsReadOnce(): void
+    {
+        InstrumentationScope::version();
+        $version = new \ReflectionProperty(InstrumentationScope::class, 'version');
+        $original = $version->getValue();
+        $version->setValue(null, 'cached');
+
+        try {
+            Assert::same(InstrumentationScope::version(), 'cached');
+        } finally {
+            $version->setValue(null, $original);
+        }
     }
 }

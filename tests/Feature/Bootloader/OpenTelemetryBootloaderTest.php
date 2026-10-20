@@ -168,7 +168,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
             #[\Override]
             public function write($level, string $message, array $context): void
             {
-                $this->entries[] = "{$level}: {$message}";
+                $this->entries[] = "{$level}: {$message}" . (($context['exception'] ?? null) instanceof \Throwable ? ' [exception]' : '');
             }
         };
         Logging::setLogWriter($log);
@@ -183,7 +183,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
         }
 
         Assert::true($span->getContext()->isSampled());
-        Assert::same($log->entries, ['warning: Unable to create sampler']);
+        Assert::same($log->entries, ['warning: Unable to create sampler [exception]']);
     }
 
     /**
