@@ -83,12 +83,12 @@ final class Tracer extends AbstractTracer
             $traceSpan->recordException($e);
             throw $error = $e;
         } finally {
-            $this->copySpan($internalSpan, $traceSpan, $traceKind, $error);
-            $traceSpan->end();
-            $scope?->detach();
-            \array_pop($this->running);
-            if ($this->running === []) {
-                $this->lastRoot = $traceSpan;
+            try {
+                self::copySpan($internalSpan, $traceSpan, $traceKind, $error);
+            } finally {
+                $traceSpan->end();
+                $scope?->detach();
+                $this->leave($traceSpan);
             }
         }
     }
@@ -104,9 +104,10 @@ final class Tracer extends AbstractTracer
     {
         $top = \end($this->running);
         $current = Context::getCurrent();
+        $active = OtelSpan::fromContext($current);
         $span = match (true) {
             $top === false => $this->lastRoot,
-            $top[1] && OtelSpan::fromContext($current)->getContext()->isValid() => OtelSpan::fromContext($current),
+            $top[1] && $active->getContext()->isValid() => $active,
             default => $top[0],
         };
 
@@ -337,20 +338,11 @@ final class Tracer extends AbstractTracer
     }
 
     /**
-     * The incoming context, extracted once: an invalid header is then reported once, not on every call.
-     */
-    private function incoming(): ContextInterface
-    {
-        /** @psalm-suppress InternalMethod Over the root, so the result holds nothing but what was extracted */
-        return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
-    }
-
-    /**
      * Copy what the callback set on the Spiral span to the OTel one, on the success path and the exception
      * path alike. An exception makes the span Error with its message, unless the callback has set a status:
      * Ok is final, and an Error keeps the callback's own description.
      */
-    private function copySpan(
+    private static function copySpan(
         SpanInterface $from,
         \OpenTelemetry\API\Trace\SpanInterface $to,
         ?TraceKind $traceKind,
@@ -367,6 +359,33 @@ final class Tracer extends AbstractTracer
 
         $to->updateName($from->getName());
         $to->setAttributes(self::normalizeAttributes($from->getAttributes()));
+    }
+
+    /**
+     * The incoming context, extracted once: an invalid header is then reported once, not on every call.
+     */
+    private function incoming(): ContextInterface
+    {
+        /** @psalm-suppress InternalMethod Over the root, so the result holds nothing but what was extracted */
+        return $this->incoming ??= $this->propagator->extract($this->context, $this->getter, Context::getRoot());
+    }
+
+    /**
+     * Take an ended trace off the stack. Not always the top one: traces in fibers that share the tracer
+     * end in any order.
+     */
+    private function leave(\OpenTelemetry\API\Trace\SpanInterface $span): void
+    {
+        for ($i = \count($this->running) - 1; $i >= 0; --$i) {
+            if ($this->running[$i][0] === $span) {
+                \array_splice($this->running, $i, 1);
+                break;
+            }
+        }
+
+        if ($this->running === []) {
+            $this->lastRoot = $span;
+        }
     }
 
     /**

@@ -546,6 +546,35 @@ final class TracerExportTest
         Assert::same($context, ['traceparent' => self::traceparentOf($scoped ? $hook : $own)]);
     }
 
+    /**
+     * Traces in fibers sharing a tracer end out of order: the one started first ends first here.
+     */
+    public function contextFollowsTracesEndingOutOfOrder(): void
+    {
+        $tracer = $this->createTracer();
+        $fiber = new \Fiber(static function () use ($tracer): void {
+            # The context storage does not fork into a fiber on its own.
+            $scope = Context::storage()->attach(Context::getRoot());
+            try {
+                $tracer->trace('first', static fn() => \Fiber::suspend());
+            } finally {
+                $scope->detach();
+            }
+        });
+        $fiber->start();
+        $context = [];
+
+        $tracer->trace('second', static function () use ($fiber, $tracer, &$context): void {
+            $fiber->resume();
+            $context = $tracer->getContext();
+        });
+
+        [$first, $second] = $this->exporter->getSpans();
+        Assert::same($first->getName(), 'first');
+        Assert::same($context, ['traceparent' => self::traceparentOf($second)]);
+        Assert::same($tracer->getContext(), ['traceparent' => self::traceparentOf($second)]);
+    }
+
     public function contextFallsBackToScopedTraceWhenNoSpanIsActive(): void
     {
         $tracer = $this->createTracer();

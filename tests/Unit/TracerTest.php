@@ -91,9 +91,9 @@ final class TracerTest
         $span = $this->expectSpanStarted();
         $span->expects('end')->with(Argument::none())->returns($span);
         $span->expects('recordException')->with($exception)->returns($span);
-        $span->expects('setStatus')->with('Error', 'Something went wrong')->returns($span);
-        $span->expects('updateName')->with('test')->returns($span);
-        $span->expects('setAttributes')->with(['foo' => 'bar'])->returns($span);
+        $span->allows('setStatus')->returns($span);
+        $span->allows('updateName')->returns($span);
+        $span->allows('setAttributes')->returns($span);
 
         Expect::exception(\ErrorException::class)->withMessageContaining('Something went wrong');
 
@@ -105,6 +105,29 @@ final class TracerTest
             attributes: ['foo' => 'bar'],
             startTime: 9999,
         );
+    }
+
+    public function traceCopiesStatusNameAndAttributesWhenCallbackThrows(): void
+    {
+        $span = $this->expectSpanStarted();
+        $span->allows('end')->returns($span);
+        $span->allows('recordException')->returns($span);
+        $span->expects('setStatus')->with('Error', 'Something went wrong')->returns($span);
+        $span->expects('updateName')->with('test')->returns($span);
+        $span->expects('setAttributes')->with(['foo' => 'bar'])->returns($span);
+
+        try {
+            $this->tracer->trace(
+                'test',
+                callback: static fn() => throw new \ErrorException('Something went wrong'),
+                attributes: ['foo' => 'bar'],
+                startTime: 9999,
+            );
+        } catch (\ErrorException) {
+            # Rethrowing is checked by traceRecordsAndRethrowsCallbackException().
+        }
+
+        $span->verify();
     }
 
     public function scopedTraceActivatesSpanForCallback(): void
