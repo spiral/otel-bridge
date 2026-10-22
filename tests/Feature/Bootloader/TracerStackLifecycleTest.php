@@ -22,7 +22,6 @@ use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
-use Testo\Lifecycle\AfterTest;
 use Testo\Test;
 
 /**
@@ -203,16 +202,6 @@ final class TracerStackLifecycleTest extends TestCase
         $this->finalizer()->finalize(false);
 
         Assert::same($reporter->reported, [$failure]);
-    }
-
-    /**
-     * Terminates the app as the kernel does. spiral/testing leaves the kernel to the garbage collector,
-     * which clears the bindings, the bound reporter among them, before the kernel destructor runs.
-     */
-    #[AfterTest]
-    public function terminate(): void
-    {
-        $this->finalizer()->finalize(true);
     }
 
     private function useExporter(RecordingSpanExporter $exporter): RecordingSpanExporter

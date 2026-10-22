@@ -19,7 +19,6 @@ final class HttpTest extends TestCase
     private const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
     private const REMOTE_SPAN_ID = '00f067aa0ba902b7';
     private const TRACEPARENT = '00-' . self::TRACE_ID . '-' . self::REMOTE_SPAN_ID . '-01';
-    private const SERVER_SPAN = 'GET /ping';
 
     public function defineBootloaders(): array
     {
@@ -30,14 +29,15 @@ final class HttpTest extends TestCase
     {
         $response = $this->fakeHttp()->get('/ping', headers: ['traceparent' => self::TRACEPARENT]);
 
-        $span = $this->traces()->await(2)->named(self::SERVER_SPAN);
+        $span = $this->traces()->await(2)->server();
         $response->assertOk()->assertBodySame('pong');
         Assert::string($response->getOriginalResponse()->getHeaderLine('traceparent'))->startsWith('00-' . self::TRACE_ID . '-');
-        Assert::same($span->kind, ReceivedSpan::KIND_SERVER);
+        Assert::string($span->name)->startsWith('GET');
         Assert::same($span->traceId, self::TRACE_ID);
         Assert::same($span->parentSpanId, self::REMOTE_SPAN_ID);
-        Assert::same($span->statusCode, ReceivedSpan::STATUS_OK);
-        Assert::same($span->attributes['http.method'] ?? null, 'GET');
-        Assert::same($span->attributes['http.status_code'] ?? null, 200);
+        # spiral/http sets Ok below 500, or leaves it Unset as the HTTP conventions say.
+        Assert::contains([ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET], $span->statusCode);
+        Assert::same($span->httpAttribute('http.request.method', 'http.method'), 'GET');
+        Assert::same($span->httpAttribute('http.response.status_code', 'http.status_code'), 200);
     }
 }

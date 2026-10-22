@@ -38,7 +38,6 @@ final class RemoteParentTest extends TestCase
     private const TRACESTATE = 'congo=t61rcWkgMzE,rojo=00f067aa0ba902b7';
     private const FLAGS_LOCAL_PARENT = 0x101;
     private const FLAGS_REMOTE_PARENT = 0x301;
-    private const SERVER_SPAN = 'GET /ping';
     private const JOB_SPAN = 'Job handling [mail.send]';
 
     public function defineBootloaders(): array
@@ -422,7 +421,7 @@ final class RemoteParentTest extends TestCase
         $response = $this->fakeHttp()->get('/ping', headers: $headers);
 
         $spans = $this->traces()->await(6);
-        $server = $spans->named(self::SERVER_SPAN);
+        $server = $spans->server();
         $handler = $spans->named('handler');
         $response->assertOk();
         Assert::count($spans, 6, "Received:\n{$spans}");
@@ -444,7 +443,7 @@ final class RemoteParentTest extends TestCase
         $this->fakeHttp()->get('/ping')->assertOk();
 
         $spans = $this->traces()->await(6);
-        $server = $spans->named(self::SERVER_SPAN);
+        $server = $spans->server();
         $handler = $spans->named('handler');
         Assert::count($spans, 6, "Received:\n{$spans}");
         Assert::true($server->isRoot());
@@ -463,7 +462,7 @@ final class RemoteParentTest extends TestCase
             ->assertOk();
 
         $spans = $this->traces()->await(6);
-        $server = $spans->named(self::SERVER_SPAN);
+        $server = $spans->server();
         Assert::count($spans, 6, "Received:\n{$spans}");
         Assert::true($server->isRoot());
         Assert::notSame($server->traceId, self::TRACE_ID);
@@ -503,8 +502,8 @@ final class RemoteParentTest extends TestCase
                 static fn(ReceivedSpan $span): bool => $span->traceId === $traceId,
             )));
             Assert::count($request, 6, "Trace {$traceId}:\n{$request}");
-            Assert::same($request->named(self::SERVER_SPAN)->parentSpanId, $parentId);
-            Assert::same($request->named('handler')->parentSpanId, $request->named(self::SERVER_SPAN)->spanId);
+            Assert::same($request->server()->parentSpanId, $parentId);
+            Assert::same($request->named('handler')->parentSpanId, $request->server()->spanId);
             Assert::same($request->named('template')->parentSpanId, $request->named('view')->spanId);
         }
     }

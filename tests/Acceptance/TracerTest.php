@@ -18,7 +18,7 @@ use Testo\Test;
 #[Test]
 final class TracerTest extends TestCase
 {
-    public function traceArrivesWithServiceNameKindAttributesAndStatus(): void
+    public function traceArrivesWithServiceNameScopeKindAttributesAndStatus(): void
     {
         $result = $this->tracer()->trace(
             'checkout',
@@ -34,7 +34,7 @@ final class TracerTest extends TestCase
         $serviceName = $this->getContainer()->get(EnvironmentInterface::class)->get('OTEL_SERVICE_NAME');
         Assert::same($result, 'done');
         Assert::same($span->serviceName(), $serviceName);
-        Assert::same($span->scopeName, $serviceName);
+        Assert::same($span->scopeName, 'spiral/otel-bridge');
         Assert::same($span->kind, ReceivedSpan::KIND_SERVER);
         Assert::same($span->attributes['order.id'] ?? null, 42);
         Assert::same($span->attributes['user.role'] ?? null, 'admin');

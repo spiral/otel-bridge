@@ -1,0 +1,11 @@
+coverage:
+  status:
+    # The ext-opentelemetry scenarios run in processes of their own, outside the coverage of the matrix, so
+    # the total moves with them: a small drop is not a failure.
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%

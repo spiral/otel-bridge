@@ -1,0 +1,60 @@
+on:
+  pull_request: null
+  push:
+    branches:
+      - master
+
+name: ext-opentelemetry
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  auto-instrumentation:
+    name: ext-opentelemetry, PHP ${{ matrix.php }}, ${{ matrix.dependencies }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.5']
+        dependencies: ['lowest', 'highest']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: opentelemetry, sockets
+          coverage: none
+          ini-values: memory_limit=-1
+
+      # Hooks are registered from the Composer autoloader and cannot be removed, so the instrumentation is
+      # installed only here: the other jobs run every test without it.
+      - name: Add auto-instrumentation
+        run: >-
+          composer require --dev --no-update --no-interaction
+          open-telemetry/opentelemetry-auto-psr15:^1.0.6 open-telemetry/opentelemetry-auto-psr18:^1.1
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: ${{ matrix.dependencies }}
+
+      - name: Check the extension
+        run: php --ri opentelemetry
+
+      - name: Execute Tests
+        run: vendor/bin/testo --path=tests/Acceptance/AutoInstrumentationTest.php
+        env:
+          REQUIRE_EXT: '1'

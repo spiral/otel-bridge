@@ -138,10 +138,9 @@ final class StatusCodeTest extends TestCase
     {
         $response = $this->fakeHttp()->get('/', query: ['code' => (string) $code]);
 
-        $span = $this->traces()->await(1)->named('GET /?code=' . $code);
+        $span = $this->traces()->await(1)->server();
         $response->assertStatus($code);
-        Assert::same($span->kind, ReceivedSpan::KIND_SERVER);
-        Assert::same($span->attributes['http.status_code'] ?? null, $code);
+        Assert::same($span->httpAttribute('http.response.status_code', 'http.status_code'), $code);
         $isError
             ? Assert::same($span->statusCode, ReceivedSpan::STATUS_ERROR)
             : Assert::notSame($span->statusCode, ReceivedSpan::STATUS_ERROR);
@@ -157,7 +156,7 @@ final class StatusCodeTest extends TestCase
     {
         $this->fakeHttp()->get('/', query: ['code' => (string) $code]);
 
-        $span = $this->traces()->await(1)->named('GET /?code=' . $code);
+        $span = $this->traces()->await(1)->server();
         Assert::same($span->statusCode, $isError ? ReceivedSpan::STATUS_ERROR : ReceivedSpan::STATUS_UNSET);
     }
 
@@ -180,7 +179,6 @@ final class StatusCodeTest extends TestCase
     #[DataSet(['success'], 'success')]
     #[DataSet(['true'], 'true')]
     #[DataSet([''], 'empty string')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
     public function unknownStatusNameArrivesUnset(string $code): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setStatus($code, 'ignored'));
@@ -198,7 +196,6 @@ final class StatusCodeTest extends TestCase
     #[DataSet(['500'], 'numeric string 500')]
     #[DataSet(['404'], 'numeric string 404')]
     #[DataSet(['0'], 'numeric string 0')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
     public function ambiguousStatusNameIsNeverOk(string $code): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setStatus($code));
@@ -211,7 +208,6 @@ final class StatusCodeTest extends TestCase
      * 4xx is Error for CLIENT and unset for SERVER, 5xx is Error.
      */
     #[DataProvider('httpStatusCodesByKind')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
     public function integerHttpCodeFollowsHttpSemanticConventions(int $code, ?TraceKind $kind, int $expected): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setStatus($code), traceKind: $kind);
@@ -222,11 +218,8 @@ final class StatusCodeTest extends TestCase
     }
 
     /**
-     * Codes the HTTP conventions leave open (4xx outside SERVER/CLIENT, codes out of the HTTP range,
-     * the OTLP enum value 2): Error or Unset are both defensible, `Ok` is not.
-     *
-     * @todo Question: out-of-range codes on CLIENT spans (-1, 600, 1000): semconv says Error, #19 proposes Unset;
-     *       4xx on INTERNAL/PRODUCER/CONSUMER and 1/2 as OTLP enum values are not covered by the spec either.
+     * Codes the HTTP conventions leave open are Error: 4xx fails every span but a SERVER one, a code out of
+     * the HTTP range cannot be interpreted, and 2 is the OTLP enum value of Error.
      */
     #[DataSet([404, null], '404 internal')]
     #[DataSet([404, TraceKind::PRODUCER], '404 producer')]
@@ -239,19 +232,27 @@ final class StatusCodeTest extends TestCase
     #[DataSet([2, null], 'OTLP Error enum')]
     #[DataSet([\PHP_INT_MAX, TraceKind::SERVER], 'PHP_INT_MAX server')]
     #[DataSet([\PHP_INT_MIN, TraceKind::CLIENT], 'PHP_INT_MIN client')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
-    public function integerCodeOutsideConventionsIsNeverOk(int $code, ?TraceKind $kind): void
+    public function integerCodeOutsideConventionsIsError(int $code, ?TraceKind $kind): void
     {
         $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setStatus($code), traceKind: $kind);
 
-        Assert::notSame($this->traces()->await(1)->named(self::SPAN)->statusCode, ReceivedSpan::STATUS_OK);
+        Assert::same($this->traces()->await(1)->named(self::SPAN)->statusCode, ReceivedSpan::STATUS_ERROR);
+    }
+
+    #[DataSet([0, ReceivedSpan::STATUS_UNSET], 'Unset')]
+    #[DataSet([1, ReceivedSpan::STATUS_OK], 'Ok')]
+    #[DataSet([2, ReceivedSpan::STATUS_ERROR], 'Error')]
+    public function otlpEnumValueIsMappedToItsStatus(int $code, int $expected): void
+    {
+        $this->tracer()->trace(self::SPAN, static fn(SpanInterface $span) => $span->setStatus($code), traceKind: TraceKind::SERVER);
+
+        Assert::same($this->traces()->await(1)->named(self::SPAN)->statusCode, $expected);
     }
 
     #[DataSet([500, null, ReceivedSpan::STATUS_ERROR, 'Upstream down'], '500 keeps it')]
     #[DataSet([404, TraceKind::CLIENT, ReceivedSpan::STATUS_ERROR, 'Upstream down'], '404 client keeps it')]
     #[DataSet([404, TraceKind::SERVER, ReceivedSpan::STATUS_UNSET, ''], '404 server drops it')]
     #[DataSet([200, TraceKind::CLIENT, ReceivedSpan::STATUS_UNSET, ''], '200 client drops it')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
     public function integerCodeDescriptionArrivesOnlyWithError(int $code, ?TraceKind $kind, int $expectedCode, string $expectedMessage): void
     {
         $this->tracer()->trace(
@@ -268,7 +269,6 @@ final class StatusCodeTest extends TestCase
     #[DataSet([['ok', 500], null, ReceivedSpan::STATUS_ERROR], 'ok then 500')]
     #[DataSet([['ok', 404], TraceKind::CLIENT, ReceivedSpan::STATUS_ERROR], 'ok then 404 client')]
     #[DataSet([['error', 200], TraceKind::SERVER, ReceivedSpan::STATUS_UNSET], 'error then 200 server')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
     public function lastIntegerStatusSetInsideCallbackWins(array $codes, ?TraceKind $kind, int $expected): void
     {
         $this->tracer()->trace(self::SPAN, static function (SpanInterface $span) use ($codes): void {
@@ -287,7 +287,6 @@ final class StatusCodeTest extends TestCase
     #[DataSet([404, 200, ReceivedSpan::STATUS_ERROR], 'upstream 404, response 200')]
     #[DataSet([503, 502, ReceivedSpan::STATUS_ERROR], 'upstream 503, response 502')]
     #[DataSet([200, 200, ReceivedSpan::STATUS_UNSET], 'upstream 200, response 200')]
-    #[Skip('Known issue: int and unknown status codes are exported as OK, see https://github.com/spiral/otel-bridge/issues/19')]
     public function clientSpanInsideRequestUsesItsOwnKindForIntegerCode(int $upstream, int $code, int $expected): void
     {
         $response = $this->fakeHttp()->get('/', query: ['code' => (string) $code, 'upstream' => (string) $upstream]);
@@ -297,9 +296,10 @@ final class StatusCodeTest extends TestCase
         $client = $spans->named('upstream');
         Assert::same($client->kind, ReceivedSpan::KIND_CLIENT);
         Assert::same($client->statusCode, $expected);
-        Assert::same(
-            $spans->named("GET /?code={$code}&upstream={$upstream}")->statusCode,
-            $code < 500 ? ReceivedSpan::STATUS_OK : ReceivedSpan::STATUS_ERROR,
+        # spiral/http sets Ok below 500, or leaves it Unset as the HTTP conventions say.
+        Assert::contains(
+            $code < 500 ? [ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET] : [ReceivedSpan::STATUS_ERROR],
+            $spans->server()->statusCode,
         );
     }
 }

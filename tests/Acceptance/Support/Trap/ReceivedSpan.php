@@ -31,6 +31,7 @@ final readonly class ReceivedSpan
     public function __construct(
         public array $resourceAttributes,
         public string $scopeName,
+        public string $scopeVersion,
         public string $traceId,
         public string $spanId,
         public ?string $parentSpanId,
@@ -47,16 +48,21 @@ final readonly class ReceivedSpan
         public int $droppedAttributesCount,
         public int $droppedEventsCount,
         public int $droppedLinksCount,
+        public int $export = 0,
     ) {}
 
     /**
      * Builds a span from one element of `resourceSpans[].scopeSpans[].spans[]` of a Trap dump line.
+     *
+     * @param int $export Number of the export request that carried the span, in the order Trap got them.
      */
-    public static function fromDump(array $resourceSpans, array $scopeSpans, array $span): self
+    public static function fromDump(array $resourceSpans, array $scopeSpans, array $span, int $export = 0): self
     {
         return new self(
+            export: $export,
             resourceAttributes: (array) ($resourceSpans['resource']['attributes'] ?? []),
             scopeName: (string) ($scopeSpans['scope']['name'] ?? ''),
+            scopeVersion: (string) ($scopeSpans['scope']['version'] ?? ''),
             traceId: (string) $span['traceId'],
             spanId: (string) $span['spanId'],
             parentSpanId: isset($span['parentSpanId']) ? (string) $span['parentSpanId'] : null,
@@ -90,6 +96,30 @@ final readonly class ReceivedSpan
         return \is_string($name) ? $name : null;
     }
 
+    /**
+     * An HTTP attribute spiral/http sets, under its stable semantic convention key or the older one,
+     * whichever the installed spiral/http writes.
+     */
+    public function httpAttribute(string $stable, string $old): mixed
+    {
+        return $this->attributes[$stable] ?? $this->attributes[$old] ?? null;
+    }
+
+    /**
+     * The request target spiral/http records: `url.path` and `url.query`, or the older `http.url`.
+     */
+    public function httpTarget(): ?string
+    {
+        if (!isset($this->attributes['url.path'])) {
+            $url = $this->attributes['http.url'] ?? null;
+            return \is_string($url) ? $url : null;
+        }
+
+        $query = $this->attributes['url.query'] ?? '';
+
+        return $this->attributes['url.path'] . ($query === '' ? '' : "?{$query}");
+    }
+
     public function isRoot(): bool
     {
         return $this->parentSpanId === null;
@@ -98,7 +128,7 @@ final readonly class ReceivedSpan
     public function __toString(): string
     {
         return \sprintf(
-            '%s span=%s parent=%s trace=%s kind=%d status=%d flags=0x%x',
+            '%s span=%s parent=%s trace=%s kind=%d status=%d flags=0x%x scope=%s export=%d',
             $this->name,
             $this->spanId,
             $this->parentSpanId ?? '-',
@@ -106,6 +136,8 @@ final readonly class ReceivedSpan
             $this->kind,
             $this->statusCode,
             $this->flags,
+            $this->scopeName,
+            $this->export,
         );
     }
 }

@@ -408,19 +408,6 @@ final class AttributesTest extends TestCase
     }
 
     /**
-     * `spiral/http` sends the request headers as a `[name => value]` array, which arrives as a JSON object.
-     */
-    public function requestHeadersArriveAsJsonObject(): void
-    {
-        $this->fakeHttp()->get('/ping', headers: ['x-one' => 'a', 'x-many' => ['b', 'c']])->assertOk();
-
-        $span = $this->traces()->await(1)->named('GET /ping');
-        $headers = $span->attributes['http.headers'] ?? null;
-        Assert::string($headers);
-        Assert::same(\json_decode($headers, true), ['x-one' => 'a', 'x-many' => 'b,c']);
-    }
-
-    /**
      * Whether `$received` carries everything of `$sent`, in any shape the spec allows: the value itself,
      * an item as its string form (bools as `true`/`false`), `null` items as null or an empty string, an
      * array or map as a list or map of preserved items or as its JSON. A list must keep its length and

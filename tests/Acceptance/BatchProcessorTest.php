@@ -31,7 +31,6 @@ use Testo\Test;
 #[Env('OTEL_PHP_TRACES_PROCESSOR', 'batch')]
 final class BatchProcessorTest extends TestCase
 {
-    private const SERVER_SPAN = 'GET /ping';
 
     public function defineBootloaders(): array
     {
@@ -111,10 +110,10 @@ final class BatchProcessorTest extends TestCase
 
         $servers = \array_values(\array_filter(
             $afterSecond->spans,
-            static fn(ReceivedSpan $span): bool => $span->name === self::SERVER_SPAN,
+            static fn(ReceivedSpan $span): bool => $span->kind === ReceivedSpan::KIND_SERVER,
         ));
         Assert::count($afterFirst, 2, "Received:\n{$afterFirst}");
-        Assert::same($afterFirst->named(self::SERVER_SPAN)->kind, ReceivedSpan::KIND_SERVER);
+        Assert::same($afterFirst->server()->traceId, $servers[0]->traceId);
         Assert::count($afterSecond, 4, "Received:\n{$afterSecond}");
         Assert::count($servers, 2);
         Assert::notSame($servers[0]->traceId, $servers[1]->traceId);

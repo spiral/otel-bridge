@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Acceptance;
 
+use OpenTelemetry\API\Baggage\Baggage;
 use Spiral\OpenTelemetry\Tests\Acceptance\Fixture\HttpBootloader;
 use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
+use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -55,7 +56,6 @@ final class ContextPropagationTest extends TestCase
     #[DataSet([[], false], 'no incoming, not scoped')]
     #[DataSet([self::INCOMING, true], 'incoming, scoped')]
     #[DataSet([self::INCOMING, false], 'incoming, not scoped')]
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function contextInsideOuterAfterNestedTracePointsToOuter(array $incoming, bool $scoped): void
     {
         $tracer = $this->tracerWithContext($incoming);
@@ -101,7 +101,6 @@ final class ContextPropagationTest extends TestCase
 
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function contextBetweenSequentialSiblingsPointsToTheirParent(bool $scoped): void
     {
         $tracer = $this->tracerWithContext([]);
@@ -126,7 +125,6 @@ final class ContextPropagationTest extends TestCase
      * `spiral/queue` takes `getContext()` for the job headers before its `Job push` trace
      * (`Interceptor/Push/Core.php`), so the second job of a handler must not be linked to the first push.
      */
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function jobsPushedOneAfterAnotherAreChildrenOfThePushingSpan(): void
     {
         $tracer = $this->tracerWithContext(self::INCOMING);
@@ -147,7 +145,6 @@ final class ContextPropagationTest extends TestCase
 
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function contextAfterNestedTraceThrewPointsToOuter(bool $scoped): void
     {
         $tracer = $this->tracerWithContext([]);
@@ -171,7 +168,6 @@ final class ContextPropagationTest extends TestCase
         self::assertContinues($spans, 'after outer', 'outer');
     }
 
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function contextAfterRootThrewOutOfNestedTracePointsToRoot(): void
     {
         $tracer = $this->tracerWithContext([]);
@@ -193,7 +189,6 @@ final class ContextPropagationTest extends TestCase
 
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function contextFollowsEveryLevelOfDeepNesting(bool $scoped): void
     {
         $tracer = $this->tracerWithContext([]);
@@ -245,8 +240,8 @@ final class ContextPropagationTest extends TestCase
     }
 
     /**
-     * @todo Question: after every trace has ended, getContext() keeps returning the last finished root (#17 proposal,
-     *       Http::handle() relies on it). No spec defines it; confirm before fixing #17.
+     * After every trace has ended, the last finished root is what continues: no spec defines it, and
+     * `Spiral\Http\Http` relies on it.
      */
     #[DataSet([true], 'scoped')]
     #[DataSet([false], 'not scoped')]
@@ -265,7 +260,6 @@ final class ContextPropagationTest extends TestCase
         Assert::notSame($spans->named('first')->traceId, $spans->named('second')->traceId);
     }
 
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function contextAfterSecondRootWithNestedTracePointsToSecondRoot(): void
     {
         $tracer = $this->tracerWithContext([]);
@@ -324,6 +318,70 @@ final class ContextPropagationTest extends TestCase
     }
 
     /**
+     * `OTEL_PROPAGATORS` defaults to `tracecontext,baggage`:
+     * https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration
+     */
+    #[DataSet([true], 'scoped')]
+    #[DataSet([false], 'not scoped')]
+    public function contextOfRunningTraceKeepsIncomingBaggage(bool $scoped): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+        $headers = [];
+
+        $tracer->trace('outer', static function () use ($tracer, &$headers): void {
+            $headers['in outer'] = $tracer->getContext();
+        }, scoped: $scoped);
+
+        Assert::same($headers['in outer']['baggage'] ?? null, 'tenant=acme');
+    }
+
+    /**
+     * The trace is over, as when `Spiral\Http\Http` adds the context to the response: the trace context
+     * goes back, the baggage does not.
+     */
+    public function contextAfterTraceCarriesNoBaggage(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+
+        $tracer->trace('outer', static fn() => null, scoped: true);
+
+        Assert::same(\array_keys($tracer->getContext()), ['traceparent']);
+    }
+
+    /**
+     * The incoming baggage is current inside the scoped root, so the code reads it and extends it.
+     */
+    public function incomingBaggageIsCurrentInsideScopedRootAndExtendable(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+        $seen = null;
+        $headers = [];
+
+        $tracer->trace('outer', static function () use ($tracer, &$seen, &$headers): void {
+            $seen = Baggage::getCurrent()->getValue('tenant');
+            $scope = Baggage::getCurrent()->toBuilder()->set('user', 'alice')->build()->activate();
+            try {
+                $headers = $tracer->getContext();
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: true);
+
+        Assert::same($seen, 'acme');
+        Assert::same($headers['baggage'] ?? null, 'tenant=acme,user=alice');
+    }
+
+    #[Env('OTEL_PROPAGATORS', 'tracecontext')]
+    public function contextCarriesOnlyTheConfiguredPropagators(): void
+    {
+        $tracer = $this->tracerWithContext(['traceparent' => self::TRACEPARENT, 'baggage' => 'tenant=acme']);
+
+        $tracer->trace('outer', static fn() => null, scoped: true);
+
+        Assert::same(\array_keys($tracer->getContext()), ['traceparent']);
+    }
+
+    /**
      * Another tracer instance, as a nested request or job would get, keeps its spans to itself.
      */
     public function traceOfAnotherTracerDoesNotChangeTheContext(): void
@@ -349,7 +407,6 @@ final class ContextPropagationTest extends TestCase
      */
     #[DataSet([[]], 'no incoming')]
     #[DataSet([self::INCOMING], 'incoming')]
-    #[Skip('Known issue: getContext() returns an already ended nested span, see https://github.com/spiral/otel-bridge/issues/17')]
     public function responseTraceparentPointsToServerSpan(array $incoming): void
     {
         $response = $this->fakeHttp()->get('/ping', headers: $incoming);
@@ -357,7 +414,7 @@ final class ContextPropagationTest extends TestCase
         $traceparent = $response->getOriginalResponse()->getHeaderLine('traceparent');
         $this->tracerWithContext(['traceparent' => $traceparent])->trace('downstream', static fn() => null);
         $spans = $this->traces()->await(3);
-        $server = $spans->named('GET /ping');
+        $server = $spans->server();
         Assert::same($traceparent, "00-{$server->traceId}-{$server->spanId}-01", "Received:\n{$spans}");
         Assert::same($spans->named('downstream')->parentSpanId, $server->spanId);
     }
