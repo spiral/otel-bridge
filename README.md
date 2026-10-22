@@ -71,7 +71,13 @@ The exporter is created lazily, on the first export. The full list of variables 
 
 The trace context is read from and written to headers with the propagators of `OTEL_PROPAGATORS`, by default W3C Trace Context and Baggage. Other propagators need their package, for example `b3` needs `open-telemetry/extension-propagator-b3`: a name the SDK does not know is skipped with a warning, and with none left the propagator is a no-op one.
 
-`getContext()` returns the context of the span running where it is called, with the baggage, while a trace runs. Once the traces of a tracer have ended, as when `Spiral\Http\Http` adds the context to the response, it returns the trace context of the last finished outermost trace without baggage. The incoming baggage is current inside a scoped trace that takes the incoming parent, so code reads it with `Baggage::getCurrent()` and can extend it.
+`getContext()` depends on where it is called:
+
+- before the tracer has started any trace, it returns the incoming headers the tracer was made with, baggage included, limited to the fields of the propagator;
+- while a trace runs, the context of the span running there, with the baggage current there, or the incoming baggage when no baggage is current;
+- once the traces of the tracer have ended, as when `Spiral\Http\Http` adds the context to the response, the trace context of the last finished outermost trace, without baggage.
+
+The incoming baggage is current inside a scoped trace that takes the incoming parent, so code reads it with `Baggage::getCurrent()` and can extend it.
 
 With `OTEL_PHP_TRACES_PROCESSOR=batch` (the SDK default) spans are queued and flushed after every request or job,
 and on application shutdown, through the Spiral finalizer. Spans still queued are lost when the worker is killed hard,
