@@ -638,6 +638,27 @@ final class TracerExportTest
         Assert::same(\array_keys($tracer->getContext()), ['traceparent']);
     }
 
+    /**
+     * Baggage still active once the trace is over, as when auto-instrumentation keeps the incoming
+     * context active around `Spiral\Http\Http::handle()`, does not go back either.
+     */
+    public function contextAfterTraceCarriesNoBaggageThatIsStillActive(): void
+    {
+        $tracer = $this->createTracer(
+            propagator: new MultiTextMapPropagator([TraceContextPropagator::getInstance(), BaggagePropagator::getInstance()]),
+        );
+        $scope = Baggage::getBuilder()->set('tenant', 'acme')->build()->activate();
+
+        try {
+            $tracer->trace('root', static fn() => null, scoped: true);
+            $context = $tracer->getContext();
+        } finally {
+            $scope->detach();
+        }
+
+        Assert::same(\array_keys($context), ['traceparent']);
+    }
+
     public function contextWithoutIncomingContextCarriesNoBaggage(): void
     {
         $tracer = $this->createTracer(

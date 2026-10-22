@@ -131,6 +131,25 @@ final class DuplicateSpanSuppressionTest
         Assert::same(self::names($this->exported()), ['outer']);
     }
 
+    /**
+     * The suppressed psr15 SERVER span of `Spiral\Http\Http` marks no SERVER span as active, so suppression
+     * by kind keeps the Spiral one inside it.
+     */
+    public function spiralServerSpanStaysWithSuppressionByKind(): void
+    {
+        $this->useStrategy(new DuplicateSpanSuppressionStrategy(new SpanKindSuppressionStrategy()));
+        $tracer = $this->tracer();
+
+        $this->inSpan($this->psr15(), 'GET', SpanKind::KIND_SERVER, static fn() => $tracer->trace(
+            'GET /ping',
+            static fn() => null,
+            scoped: true,
+            traceKind: TraceKind::SERVER,
+        ), ['code.function.name' => 'Spiral\Http\Http::handle']);
+
+        Assert::same(self::names($this->exported()), ['GET /ping']);
+    }
+
     public function psr15ServerSpanOfOtherHandlerIsLeftToTheGivenStrategy(): void
     {
         $this->useStrategy(new DuplicateSpanSuppressionStrategy(new SpanKindSuppressionStrategy()));
