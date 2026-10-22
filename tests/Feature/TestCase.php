@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry\Tests\Feature;
 
+use Spiral\Boot\AbstractKernel;
 use Spiral\Boot\Bootloader\ConfigurationBootloader;
 use Spiral\Boot\FinalizerInterface;
+use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
 use Testo\Lifecycle\AfterTest;
 
@@ -22,6 +24,17 @@ abstract class TestCase extends \Spiral\Testing\TestCase
             ConfigurationBootloader::class,
             OpenTelemetryBootloader::class,
         ];
+    }
+
+    /**
+     * The app booted here replaces the app of the test, which nothing would terminate after that.
+     */
+    #[\Override]
+    public function makeApp(array $env = [], Container $container = new Container()): AbstractKernel
+    {
+        $this->terminate();
+
+        return parent::makeApp($env, $container);
     }
 
     /**

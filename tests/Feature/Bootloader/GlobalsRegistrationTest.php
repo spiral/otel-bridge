@@ -101,7 +101,6 @@ final class GlobalsRegistrationTest extends TestCase
      */
     public function registrationDoesNotKeepWhatIsActiveAtBoot(): void
     {
-        $this->finalizer()->finalize(true);
         $scope = Span::wrap(SpanContext::create('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331'))->activate();
         try {
             $app = $this->makeApp();
@@ -119,8 +118,6 @@ final class GlobalsRegistrationTest extends TestCase
      */
     public function bootRegistersTheDriverAndGlobalsUntilTermination(): void
     {
-        $this->finalizer()->finalize(true);
-
         $container = $this->makeApp()->getContainer();
         $driver = $container->get(ConfiguratorInterface::class)->getConfig(TelemetryConfig::CONFIG)['drivers']['otel'] ?? null;
         $propagator = Globals::propagator();
