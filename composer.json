@@ -36,7 +36,8 @@
         "spiral/core": "^3.17.2",
         "spiral/events": "^3.17.2",
         "spiral/exceptions": "^3.17.2",
-        "spiral/telemetry": "^3.17.2"
+        "spiral/telemetry": "^3.17.2",
+        "tbachert/spi": "^1.0.5"
     },
     "conflict": {
         "open-telemetry/opentelemetry-auto-psr15": "<1.0.6 || >=1.4",
