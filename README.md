@@ -77,6 +77,8 @@ With `OTEL_PHP_TRACES_PROCESSOR=batch` (the SDK default) spans are queued and fl
 and on application shutdown, through the Spiral finalizer. Spans still queued are lost when the worker is killed hard,
 e.g. by `SIGKILL` or the RoadRunner stop timeout.
 
+The names, attributes and status of the spans of Spiral components, like the SERVER span of a request and its HTTP attributes, are set by those components, `spiral/http` among them; the bridge exports them as they are.
+
 ### Span status
 
 A status set on a Spiral span is exported as the OpenTelemetry span status:
