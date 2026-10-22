@@ -96,6 +96,30 @@ final readonly class ReceivedSpan
         return \is_string($name) ? $name : null;
     }
 
+    /**
+     * An HTTP attribute spiral/http sets, under its stable semantic convention key or the older one,
+     * whichever the installed spiral/http writes.
+     */
+    public function httpAttribute(string $stable, string $old): mixed
+    {
+        return $this->attributes[$stable] ?? $this->attributes[$old] ?? null;
+    }
+
+    /**
+     * The request target spiral/http records: `url.path` and `url.query`, or the older `http.url`.
+     */
+    public function httpTarget(): ?string
+    {
+        if (!isset($this->attributes['url.path'])) {
+            $url = $this->attributes['http.url'] ?? null;
+            return \is_string($url) ? $url : null;
+        }
+
+        $query = $this->attributes['url.query'] ?? '';
+
+        return $this->attributes['url.path'] . ($query === '' ? '' : "?{$query}");
+    }
+
     public function isRoot(): bool
     {
         return $this->parentSpanId === null;

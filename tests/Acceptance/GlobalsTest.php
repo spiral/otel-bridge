@@ -47,7 +47,7 @@ final class GlobalsTest extends TestCase
 
     private static function assertRequestFlushedInOneExport(SpanList $spans): void
     {
-        $server = $spans->named('GET http://localhost/ping');
+        $server = $spans->server();
         $handler = $spans->named('handler');
         Assert::same($server->traceId, self::TRACE_ID, "Received:\n{$spans}");
         Assert::same($server->parentSpanId, self::REMOTE_SPAN_ID);

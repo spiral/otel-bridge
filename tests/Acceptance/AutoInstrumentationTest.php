@@ -25,7 +25,6 @@ final class AutoInstrumentationTest extends TestCase
     private const REMOTE_SPAN_ID = '00f067aa0ba902b7';
     private const PSR15 = 'io.opentelemetry.contrib.php.psr15';
     private const PSR18 = 'io.opentelemetry.contrib.php.psr18';
-    private const SERVER = 'GET http://localhost/ping';
 
     /**
      * The tree is the one without the extension, with the span of the PSR-18 call in it: the Spiral
@@ -91,7 +90,7 @@ final class AutoInstrumentationTest extends TestCase
         Assert::same($psr15, [], "Received:\n{$spans}");
 
         $server = $servers[0];
-        Assert::same($server->name, self::SERVER, "Received:\n{$spans}");
+        Assert::same($server->scopeName, 'spiral/otel-bridge', "Received:\n{$spans}");
         Assert::same($server->parentSpanId, self::REMOTE_SPAN_ID);
         # https://opentelemetry.io/docs/specs/otlp/: bit 8 says whether the parent is known to be remote, bit 9 that it is.
         Assert::same($server->flags & 0x300, 0x300, "Received:\n{$spans}");

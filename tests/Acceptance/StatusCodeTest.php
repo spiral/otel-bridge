@@ -138,10 +138,9 @@ final class StatusCodeTest extends TestCase
     {
         $response = $this->fakeHttp()->get('/', query: ['code' => (string) $code]);
 
-        $span = $this->traces()->await(1)->named('GET /?code=' . $code);
+        $span = $this->traces()->await(1)->server();
         $response->assertStatus($code);
-        Assert::same($span->kind, ReceivedSpan::KIND_SERVER);
-        Assert::same($span->attributes['http.status_code'] ?? null, $code);
+        Assert::same($span->httpAttribute('http.response.status_code', 'http.status_code'), $code);
         $isError
             ? Assert::same($span->statusCode, ReceivedSpan::STATUS_ERROR)
             : Assert::notSame($span->statusCode, ReceivedSpan::STATUS_ERROR);
@@ -157,7 +156,7 @@ final class StatusCodeTest extends TestCase
     {
         $this->fakeHttp()->get('/', query: ['code' => (string) $code]);
 
-        $span = $this->traces()->await(1)->named('GET /?code=' . $code);
+        $span = $this->traces()->await(1)->server();
         Assert::same($span->statusCode, $isError ? ReceivedSpan::STATUS_ERROR : ReceivedSpan::STATUS_UNSET);
     }
 
@@ -297,9 +296,10 @@ final class StatusCodeTest extends TestCase
         $client = $spans->named('upstream');
         Assert::same($client->kind, ReceivedSpan::KIND_CLIENT);
         Assert::same($client->statusCode, $expected);
-        Assert::same(
-            $spans->named("GET /?code={$code}&upstream={$upstream}")->statusCode,
-            $code < 500 ? ReceivedSpan::STATUS_OK : ReceivedSpan::STATUS_ERROR,
+        # spiral/http sets Ok below 500, or leaves it Unset as the HTTP conventions say.
+        Assert::contains(
+            $code < 500 ? [ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET] : [ReceivedSpan::STATUS_ERROR],
+            $spans->server()->statusCode,
         );
     }
 }

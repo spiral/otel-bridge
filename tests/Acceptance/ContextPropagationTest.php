@@ -414,7 +414,7 @@ final class ContextPropagationTest extends TestCase
         $traceparent = $response->getOriginalResponse()->getHeaderLine('traceparent');
         $this->tracerWithContext(['traceparent' => $traceparent])->trace('downstream', static fn() => null);
         $spans = $this->traces()->await(3);
-        $server = $spans->named('GET /ping');
+        $server = $spans->server();
         Assert::same($traceparent, "00-{$server->traceId}-{$server->spanId}-01", "Received:\n{$spans}");
         Assert::same($spans->named('downstream')->parentSpanId, $server->spanId);
     }

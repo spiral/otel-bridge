@@ -36,6 +36,22 @@ final readonly class SpanList implements \IteratorAggregate, \Countable
         return $found[0];
     }
 
+    /**
+     * The only SERVER span. Its name is up to spiral/http: `{method} {url}`, or `{method}` once it follows
+     * the stable HTTP conventions.
+     */
+    public function server(): ReceivedSpan
+    {
+        $found = \array_values(\array_filter($this->spans, static fn(ReceivedSpan $s): bool => $s->kind === ReceivedSpan::KIND_SERVER));
+        \count($found) === 1 or Assert::fail(\sprintf(
+            "Expected exactly one SERVER span, got %d. Received:\n%s",
+            \count($found),
+            $this,
+        ));
+
+        return $found[0];
+    }
+
     public function getIterator(): \ArrayIterator
     {
         return new \ArrayIterator($this->spans);

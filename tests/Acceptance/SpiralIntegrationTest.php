@@ -43,14 +43,14 @@ final class SpiralIntegrationTest extends TestCase
         $response = $this->fakeHttp()->get('/orders');
 
         $spans = $this->traces()->await(5);
-        $server = $spans->named('GET /orders');
+        $server = $spans->server();
         $pipeline = $spans->named(self::PIPELINE_SPAN);
         $load = $spans->named('load orders');
         $response->assertOk()->assertBodySame('orders');
         Assert::count($spans, 5, "Received:\n{$spans}");
         Assert::true($server->isRoot());
-        Assert::same($server->kind, ReceivedSpan::KIND_SERVER);
-        Assert::same($server->statusCode, ReceivedSpan::STATUS_OK);
+        # spiral/http sets Ok below 500, or leaves it Unset as the HTTP conventions say.
+        Assert::contains([ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET], $server->statusCode);
         Assert::same($server->flags, self::FLAGS_LOCAL_PARENT);
         Assert::same($pipeline->parentSpanId, $server->spanId);
         Assert::same($pipeline->kind, ReceivedSpan::KIND_INTERNAL);
@@ -62,17 +62,21 @@ final class SpiralIntegrationTest extends TestCase
         self::assertOneTrace($spans, $server->traceId);
     }
 
-    #[DataSet(['/orders', [], 'GET /orders'], 'path only')]
-    #[DataSet(['/orders', ['status' => 'paid', 'page' => '2'], 'GET /orders?status=paid&page=2'], 'query string')]
-    public function serverSpanIsNamedAfterMethodAndUrl(string $path, array $query, string $expected): void
+    /**
+     * The name and attributes come from spiral/http, under the keys of the HTTP conventions it follows.
+     */
+    #[DataSet(['/orders', [], '/orders'], 'path only')]
+    #[DataSet(['/orders', ['status' => 'paid', 'page' => '2'], '/orders?status=paid&page=2'], 'query string')]
+    public function serverSpanCarriesTheRequestAndResponse(string $path, array $query, string $target): void
     {
         $this->fakeHttp()->get($path, query: $query)->assertOk();
 
-        $server = $this->traces()->await(5)->named($expected);
-        Assert::same($server->attributes['http.method'] ?? null, 'GET');
-        Assert::same($server->attributes['http.url'] ?? null, \substr($expected, 4));
-        Assert::same($server->attributes['http.status_code'] ?? null, 200);
-        Assert::same($server->attributes['http.response_content_length'] ?? null, 6);
+        $server = $this->traces()->await(5)->server();
+        Assert::string($server->name)->startsWith('GET');
+        Assert::same($server->httpAttribute('http.request.method', 'http.method'), 'GET');
+        Assert::same($server->httpTarget(), $target);
+        Assert::same($server->httpAttribute('http.response.status_code', 'http.status_code'), 200);
+        Assert::same($server->httpAttribute('http.response.body.size', 'http.response_content_length'), 6);
     }
 
     /**
@@ -84,18 +88,17 @@ final class SpiralIntegrationTest extends TestCase
         $response = $this->fakeHttp()->post('/orders', ['to' => 'carol@example.com']);
 
         $spans = $this->traces()->await(6);
-        $server = $spans->named('POST /orders');
+        $server = $spans->server();
         $job = $spans->named(self::JOB_SPAN);
         $jobId = (string) $response->getOriginalResponse()->getBody();
         $response->assertStatus(201);
         Assert::same($this->getContainer()->get(SpiralIntegrationOutbox::class)->delivered, ['carol@example.com']);
         Assert::count($spans, 6, "Received:\n{$spans}");
-        Assert::same($server->kind, ReceivedSpan::KIND_SERVER);
-        Assert::same($server->attributes['http.method'] ?? null, 'POST');
-        Assert::same($server->attributes['http.url'] ?? null, '/orders');
-        Assert::same($server->attributes['http.status_code'] ?? null, 201);
-        Assert::same($server->attributes['http.response_content_length'] ?? null, \strlen($jobId));
-        Assert::same($server->statusCode, ReceivedSpan::STATUS_OK);
+        Assert::same($server->httpAttribute('http.request.method', 'http.method'), 'POST');
+        Assert::same($server->httpTarget(), '/orders');
+        Assert::same($server->httpAttribute('http.response.status_code', 'http.status_code'), 201);
+        Assert::same($server->httpAttribute('http.response.body.size', 'http.response_content_length'), \strlen($jobId));
+        Assert::contains([ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET], $server->statusCode);
         Assert::same($spans->named(self::PUSH_SPAN)->parentSpanId, $spans->named(self::PIPELINE_SPAN)->spanId);
         Assert::same($job->kind, ReceivedSpan::KIND_CONSUMER);
         Assert::same($job->attributes['queue.job.id'] ?? null, $jobId);
@@ -130,8 +133,8 @@ final class SpiralIntegrationTest extends TestCase
         foreach ($traces as $traceId => $trace) {
             $request = new SpanList($trace);
             Assert::count($request, 5, "Trace {$traceId}:\n{$request}");
-            Assert::true($request->named('GET /orders')->isRoot());
-            Assert::same($request->named(self::PIPELINE_SPAN)->parentSpanId, $request->named('GET /orders')->spanId);
+            Assert::true($request->server()->isRoot());
+            Assert::same($request->named(self::PIPELINE_SPAN)->parentSpanId, $request->server()->spanId);
             Assert::same($request->named('query')->parentSpanId, $request->named('load orders')->spanId);
         }
     }
@@ -144,7 +147,7 @@ final class SpiralIntegrationTest extends TestCase
     {
         $response = $this->fakeHttp()->get('/orders');
 
-        $server = $this->traces()->await(5)->named('GET /orders');
+        $server = $this->traces()->await(5)->server();
         Assert::string($response->getOriginalResponse()->getHeaderLine('traceparent'))
             ->matchesRegex("/^00-{$server->traceId}-[0-9a-f]{16}-01\$/");
     }
@@ -157,7 +160,7 @@ final class SpiralIntegrationTest extends TestCase
     {
         $response = $this->fakeHttp()->get('/orders');
 
-        $server = $this->traces()->await(5)->named('GET /orders');
+        $server = $this->traces()->await(5)->server();
         Assert::same(
             $response->getOriginalResponse()->getHeaderLine('traceparent'),
             "00-{$server->traceId}-{$server->spanId}-01",
@@ -177,7 +180,7 @@ final class SpiralIntegrationTest extends TestCase
         $spans = $this->traces()->await(4);
         Assert::count($spans, 4, "Received:\n{$spans}");
         Assert::same($spans->named('build report')->parentSpanId, $spans->named(self::PIPELINE_SPAN)->spanId);
-        self::assertOneTrace($spans, $spans->named('GET /report')->traceId);
+        self::assertOneTrace($spans, $spans->server()->traceId);
     }
 
     public function serviceResolvedInChildScopeTracesUnderActiveSpan(): void
