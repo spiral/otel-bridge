@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/spiral/otel-bridge/compare/1.3.0...2.0.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* the instrumentation scope is `spiral/otel-bridge` with the package version, not OTEL_SERVICE_NAME. The propagator follows OTEL_PROPAGATORS (default tracecontext,baggage) and is a singleton. The provider and propagator are registered in Globals at boot, or taken from Globals with OTEL_PHP_AUTOLOAD_ENABLED=true. Integer and unknown status codes no longer export Ok, and a throwing callback exports Error. getContext() returns the span running where it is called and leaves baggage out once the traces have ended. OpenTelemetryBootloader::initTraceProvider() takes the span processor from the container. open-telemetry/sdk >=1.9 <1.16, api ^1.7, context ^1.4 and tbachert/spi ^1.0.5 are required; opentelemetry-auto-psr15 outside 1.0.6-1.3 conflicts. The release-please manifest moved to resources/version.json.
+
+### Features
+
+* integrate with ext-opentelemetry; fix [#17](https://github.com/spiral/otel-bridge/issues/17), [#18](https://github.com/spiral/otel-bridge/issues/18), [#19](https://github.com/spiral/otel-bridge/issues/19) ([#41](https://github.com/spiral/otel-bridge/issues/41)) ([74d0399](https://github.com/spiral/otel-bridge/commit/74d03994e5dcf62c4afce8575ea73b04bc3096da))
+
 ## [1.3.0](https://github.com/spiral/otel-bridge/compare/1.2.3...1.3.0) (2026-10-16)
 
 
