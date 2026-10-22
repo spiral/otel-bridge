@@ -191,18 +191,20 @@ final class OpenTelemetryBootloader extends Bootloader
             $name = Configuration::has(self::SPAN_SUPPRESSION_STRATEGY)
                 ? \strtolower(\trim(Configuration::getString(self::SPAN_SUPPRESSION_STRATEGY, 'none')))
                 : 'none';
-        } catch (\Throwable) {
-            $name = '';
+        } catch (\Throwable $e) {
+            self::logWarning('Unable to read the span suppression strategy, none is used', ['exception' => $e]);
+            $name = 'none';
+        }
+
+        if (!\in_array($name, ['none', 'spankind', 'semconv'], true)) {
+            self::logWarning(\sprintf('Unknown span suppression strategy "%s", none is used', $name));
+            $name = 'none';
         }
 
         return match ($name) {
-            'none' => new NoopSuppressionStrategy(),
             'spankind' => new SpanKindSuppressionStrategy(),
             'semconv' => new SemanticConventionSuppressionStrategy(ServiceLoader::load(SemanticConventionResolver::class)),
-            default => (static function () use ($name): SpanSuppressionStrategy {
-                self::logWarning(\sprintf('Unknown span suppression strategy "%s", none is used', $name));
-                return new NoopSuppressionStrategy();
-            })(),
+            default => new NoopSuppressionStrategy(),
         };
     }
 
