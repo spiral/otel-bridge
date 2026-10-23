@@ -12,6 +12,8 @@ return Architecture::define()
     ->layer('Propagation', 'src/Propagation')
     ->layer('Tracer', 'src/Tracer.php')
     ->layer('TracerFactory', 'src/TracerFactory.php')
+    ->layer('Config', 'src/Config')
+    ->layer('Exception', 'src/Exception')
     ->layer('Bootloader', 'src/Bootloader')
     ->ruleset([
         'Clock'         => [],
@@ -19,5 +21,7 @@ return Architecture::define()
         'Propagation'   => [],
         'Tracer'        => ['Propagation'],
         'TracerFactory' => ['+Tracer'],
-        'Bootloader'    => ['Clock', 'Trace', '+TracerFactory'],
+        'Config'        => ['Exception'],
+        'Exception'     => [],
+        'Bootloader'    => ['Clock', 'Config', 'Trace', '+TracerFactory'],
     ]);
