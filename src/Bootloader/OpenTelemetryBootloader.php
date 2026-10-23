@@ -17,10 +17,15 @@ use OpenTelemetry\SDK\Common\Configuration\Configuration;
 use OpenTelemetry\SDK\Common\Configuration\Variables;
 use OpenTelemetry\SDK\Common\Util\ShutdownHandler;
 use OpenTelemetry\SDK\Propagation\PropagatorFactory;
+use OpenTelemetry\SDK\Resource\ResourceInfo;
+use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
 use OpenTelemetry\SDK\Sdk;
 use OpenTelemetry\SDK\Trace\ExporterFactory;
 use OpenTelemetry\SDK\Trace\NoopTracerProvider;
+use OpenTelemetry\SDK\Trace\Sampler\AlwaysOnSampler;
+use OpenTelemetry\SDK\Trace\Sampler\ParentBased;
 use OpenTelemetry\SDK\Trace\SamplerFactory;
+use OpenTelemetry\SDK\Trace\SamplerInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\NoopSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorFactory;
@@ -34,6 +39,9 @@ use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Psr\Container\ContainerInterface;
 use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\FinalizerInterface;
+use Spiral\Config\ConfiguratorInterface;
+use Spiral\OpenTelemetry\Config\OpenTelemetryConfig;
+use Spiral\OpenTelemetry\Config\ProviderMode;
 use Spiral\OpenTelemetry\InstrumentationScope;
 use Spiral\OpenTelemetry\Propagation\LateBindingPropagator;
 use Spiral\OpenTelemetry\SystemClock;
@@ -57,25 +65,38 @@ final class OpenTelemetryBootloader extends Bootloader
         TracerProviderInterface::class => [self::class, 'initTraceProvider'],
         SpanExporterInterface::class => [self::class, 'initSpanExporter'],
         SpanProcessorInterface::class => [self::class, 'initSpanProcessor'],
+        SamplerInterface::class => [self::class, 'initSampler'],
+        ResourceInfo::class => [self::class, 'initResource'],
         ClockInterface::class => SystemClock::class,
     ];
+
+    public function init(TelemetryBootloader $telemetry, ConfiguratorInterface $configurator): void
+    {
+        $telemetry->registerTracer('otel', TracerFactory::class);
+        $configurator->setDefaults(OpenTelemetryConfig::CONFIG, [
+            'mode' => ProviderMode::Auto->value,
+            'suppress_psr15' => true,
+            'flush' => [
+                'every' => 1,
+                'interval' => null,
+            ],
+        ]);
+    }
 
     /**
      * Makes the app's provider and propagator the ones auto-instrumentation gets from `Globals`, so the
      * spans of hooks share the pipeline, and the per-request flush, of the Spiral spans. With the SDK
-     * autoloader enabled, it is the other way round: the app takes them from `Globals`.
+     * autoloader enabled, or the `globals` mode, it is the other way round: the app takes them from `Globals`.
      *
      * Done at boot, as a hook may fire before anything in the app traces; the provider registered is a
      * late-binding one, so it is still built on first use.
      */
-    public function init(
-        TelemetryBootloader $telemetry,
+    public function boot(
+        OpenTelemetryConfig $config,
         ContainerInterface $container,
         FinalizerInterface $finalizer,
     ): void {
-        $telemetry->registerTracer('otel', TracerFactory::class);
-
-        if (self::autoloadedProvider(report: true) !== null) {
+        if (self::globalProvider($config, report: true) !== null) {
             # Built now, so its flush is registered even if only hooks ever create spans.
             $container->get(TracerProviderInterface::class);
             $finalizer->addFinalizer(new ContextFinalizer());
@@ -109,9 +130,33 @@ final class OpenTelemetryBootloader extends Bootloader
     /**
      * The propagators named in `OTEL_PROPAGATORS`, by default W3C Trace Context and Baggage.
      */
-    public function initTextMapPropagator(): TextMapPropagatorInterface
+    public function initTextMapPropagator(OpenTelemetryConfig $config): TextMapPropagatorInterface
     {
-        return self::autoloadedProvider() !== null ? Globals::propagator() : (new PropagatorFactory())->create();
+        return self::globalProvider($config) !== null ? Globals::propagator() : (new PropagatorFactory())->create();
+    }
+
+    /**
+     * The sampler of `OTEL_TRACES_SAMPLER`; an invalid setting is reported and the SDK default applies.
+     * Used only by the provider the bridge builds.
+     */
+    public function initSampler(): SamplerInterface
+    {
+        try {
+            return (new SamplerFactory())->create();
+        } catch (\Throwable $e) {
+            self::logWarning('Unable to create sampler', ['exception' => $e]);
+
+            return new ParentBased(new AlwaysOnSampler());
+        }
+    }
+
+    /**
+     * The resource of `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME` and the detectors of `OTEL_PHP_DETECTORS`.
+     * Used only by the provider the bridge builds.
+     */
+    public function initResource(): ResourceInfo
+    {
+        return ResourceInfoFactory::defaultResource();
     }
 
     public function initSpanProcessor(
@@ -135,18 +180,22 @@ final class OpenTelemetryBootloader extends Bootloader
 
     /**
      * Built on first use, so finalizing an app that never traced builds nothing. From then on the
-     * provider is flushed when each request or job ends and shut down with the app; otherwise the
-     * batch processor never exports a partial batch.
+     * provider is flushed when requests or jobs end, as `flush` sets, and shut down with the app; otherwise
+     * the batch processor never exports a partial batch.
      *
-     * With the SDK autoloader enabled, the provider is the global one, which the SDK shuts down itself.
+     * Taken from `Globals`, the provider is only flushed: its owner shuts it down. Built here, it takes the
+     * sampler and the resource from the container, so an app can bind its own.
      */
     public function initTraceProvider(
         FinalizerInterface $finalizer,
         ContainerInterface $container,
+        OpenTelemetryConfig $config,
     ): TracerProviderInterface {
-        $provider = self::autoloadedProvider();
+        $every = $config->getFlushEvery();
+        $interval = $config->getFlushInterval();
+        $provider = self::globalProvider($config);
         if ($provider !== null) {
-            $finalizer->addFinalizer(new TracerProviderFinalizer($provider, $container, owned: false));
+            $finalizer->addFinalizer(new TracerProviderFinalizer($provider, $container, false, $every, $interval));
 
             return $provider;
         }
@@ -157,20 +206,21 @@ final class OpenTelemetryBootloader extends Bootloader
 
         $spanProcessor = $container->get(SpanProcessorInterface::class);
         \assert($spanProcessor instanceof SpanProcessorInterface);
+        $sampler = $container->get(SamplerInterface::class);
+        \assert($sampler instanceof SamplerInterface);
+        $resource = $container->get(ResourceInfo::class);
+        \assert($resource instanceof ResourceInfo);
 
-        try {
-            $sampler = (new SamplerFactory())->create();
-        } catch (\Throwable $e) {
-            self::logWarning('Unable to create sampler', ['exception' => $e]);
-            $sampler = null;
-        }
-
+        $suppression = self::spanSuppressionStrategy();
         $provider = new TracerProvider(
             $spanProcessor,
             $sampler,
-            spanSuppressionStrategy: new DuplicateSpanSuppressionStrategy(self::spanSuppressionStrategy()),
+            $resource,
+            spanSuppressionStrategy: $config->suppressPsr15()
+                ? new DuplicateSpanSuppressionStrategy($suppression)
+                : $suppression,
         );
-        $providerFinalizer = new TracerProviderFinalizer($provider, $container);
+        $providerFinalizer = new TracerProviderFinalizer($provider, $container, true, $every, $interval);
         # At exit PHP runs shutdown functions before the kernel destructor calls finalize(true), and after
         # a fatal error only them. The reference is weak: an app already destroyed is not shut down twice.
         # @infection-ignore-all Only the tests of process exit see it, and they run the unmutated src.
@@ -209,15 +259,17 @@ final class OpenTelemetryBootloader extends Bootloader
     }
 
     /**
-     * The global provider the SDK autoloader has built, or null when the bridge builds its own.
+     * The SDK provider in `Globals` the app takes, or null when the bridge builds its own. In the `auto`
+     * mode it is taken only when the SDK autoloader has built it.
      *
      * The autoloader decides when Composer loads, from the process env and ini, before the app reads its
      * `.env`: `OTEL_PHP_AUTOLOAD_ENABLED` seen only by the app leaves `Globals` without an SDK provider, and
      * the bridge then builds its own, reporting the setting it cannot follow.
      */
-    private static function autoloadedProvider(bool $report = false): ?TracerProviderInterface
+    private static function globalProvider(OpenTelemetryConfig $config, bool $report = false): ?TracerProviderInterface
     {
-        if (!self::sdkAutoloaded()) {
+        $mode = $config->getMode();
+        if ($mode === ProviderMode::Bridge || $mode === ProviderMode::Auto && !self::sdkAutoloaded()) {
             return null;
         }
 
@@ -227,10 +279,11 @@ final class OpenTelemetryBootloader extends Bootloader
         }
 
         if ($report && !Sdk::isDisabled()) {
-            self::logWarning(
-                'OTEL_PHP_AUTOLOAD_ENABLED is set, but the SDK autoloader has not configured the global tracer'
-                . ' provider; set it in the process environment or php.ini. The bridge builds its own provider.',
-            );
+            self::logWarning($mode === ProviderMode::Auto
+                ? 'OTEL_PHP_AUTOLOAD_ENABLED is set, but the SDK autoloader has not configured the global tracer'
+                    . ' provider; set it in the process environment or php.ini. The bridge builds its own provider.'
+                : 'The opentelemetry.mode is "globals", but Globals has no SDK tracer provider.'
+                    . ' The bridge builds its own provider.');
         }
 
         return null;
