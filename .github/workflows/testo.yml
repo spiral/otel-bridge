@@ -2,7 +2,7 @@ on:
   pull_request: null
   push:
     branches:
-      - master
+      - 2.x
 
 name: testo
 
