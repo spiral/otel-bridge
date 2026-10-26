@@ -13,7 +13,9 @@ use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\Propagation\MultiTextMapPropagator;
 use OpenTelemetry\Context\Propagation\NoopTextMapPropagator;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
+use OpenTelemetry\SDK\Resource\ResourceInfo;
 use OpenTelemetry\SDK\Trace\NoopTracerProvider;
+use OpenTelemetry\SDK\Trace\SamplerInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\NoopSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
@@ -23,6 +25,7 @@ use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Spiral\Boot\Finalizer;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
+use Spiral\OpenTelemetry\Config\OpenTelemetryConfig;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Spiral\OpenTelemetry\Tests\Support\TestEnv;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
@@ -62,7 +65,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
 
         $propagator = TestEnv::withProcessEnv(
             ['OTEL_PROPAGATORS' => $propagators],
-            static fn() => $bootloader->initTextMapPropagator(),
+            static fn() => $bootloader->initTextMapPropagator(new OpenTelemetryConfig()),
         );
 
         Assert::instanceOf($propagator, $class);
@@ -87,7 +90,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
         [$processor, $provider] = TestEnv::withProcessEnv(['OTEL_SDK_DISABLED' => 'true'], static function () use ($bootloader, $finalizer): array {
             $processor = $bootloader->initSpanProcessor($bootloader->initSpanExporter());
 
-            return [$processor, $bootloader->initTraceProvider($finalizer, new Container())];
+            return [$processor, $bootloader->initTraceProvider($finalizer, new Container(), new OpenTelemetryConfig())];
         });
         $finalizer->finalize(false);
         $finalizer->finalize(true);
@@ -192,7 +195,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
     private static function nestedServerSpans(OpenTelemetryBootloader $bootloader): array
     {
         $tracer = $bootloader
-            ->initTraceProvider(new Finalizer(), self::noopProcessorContainer())
+            ->initTraceProvider(new Finalizer(), self::noopProcessorContainer($bootloader), new OpenTelemetryConfig())
             ->getTracer('test');
         $outer = $tracer->spanBuilder('outer')->setSpanKind(SpanKind::KIND_SERVER)->startSpan();
         $scope = $outer->activate();
@@ -204,10 +207,12 @@ final class OpenTelemetryBootloaderTest extends TestCase
         }
     }
 
-    private static function noopProcessorContainer(): Container
+    private static function noopProcessorContainer(OpenTelemetryBootloader $bootloader): Container
     {
         $container = new Container();
         $container->bindSingleton(SpanProcessorInterface::class, NoopSpanProcessor::getInstance());
+        $container->bindSingleton(SamplerInterface::class, $bootloader->initSampler());
+        $container->bindSingleton(ResourceInfo::class, $bootloader->initResource());
 
         return $container;
     }
@@ -215,7 +220,7 @@ final class OpenTelemetryBootloaderTest extends TestCase
     private static function startSpan(OpenTelemetryBootloader $bootloader): SpanInterface
     {
         return $bootloader
-            ->initTraceProvider(new Finalizer(), self::noopProcessorContainer())
+            ->initTraceProvider(new Finalizer(), self::noopProcessorContainer($bootloader), new OpenTelemetryConfig())
             ->getTracer('test')
             ->spanBuilder('root')
             ->startSpan();

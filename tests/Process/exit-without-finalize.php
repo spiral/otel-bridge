@@ -13,6 +13,8 @@ declare(strict_types=1);
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Common\Future\CompletedFuture;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
+use OpenTelemetry\SDK\Resource\ResourceInfo;
+use OpenTelemetry\SDK\Trace\SamplerInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
@@ -20,6 +22,7 @@ use Spiral\Boot\Finalizer;
 use Spiral\Core\Container;
 use Spiral\Exceptions\ExceptionReporterInterface;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
+use Spiral\OpenTelemetry\Config\OpenTelemetryConfig;
 
 # The lowest dependencies are not free of deprecations on newer PHP; they are not what is checked here.
 \error_reporting(\E_ALL & ~\E_DEPRECATED);
@@ -69,7 +72,11 @@ $container->bindSingleton(ExceptionReporterInterface::class, new class implement
 
 $container->bindSingleton(SpanProcessorInterface::class, BatchSpanProcessor::builder($exporter)->build());
 
+$bootloader = new OpenTelemetryBootloader();
+$container->bindSingleton(SamplerInterface::class, $bootloader->initSampler());
+$container->bindSingleton(ResourceInfo::class, $bootloader->initResource());
+
 $finalizer = new Finalizer();
-$provider = (new OpenTelemetryBootloader())->initTraceProvider($finalizer, $container);
+$provider = $bootloader->initTraceProvider($finalizer, $container, new OpenTelemetryConfig());
 $provider->getTracer('test')->spanBuilder('unfinished request')->startSpan()->end();
 echo "exit\n";

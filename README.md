@@ -52,7 +52,7 @@ public function defineBootloaders(): array
 }
 ```
 
-### Configuration
+### Environment
 
 Select the `otel` driver and configure the SDK with the standard `OTEL_*` environment variables:
 
@@ -80,8 +80,8 @@ The trace context is read from and written to headers with the propagators of `O
 The incoming baggage is current inside a scoped trace that takes the incoming parent, so code reads it with `Baggage::getCurrent()` and can extend it.
 
 With `OTEL_PHP_TRACES_PROCESSOR=batch` (the SDK default) spans are queued and flushed after every request or job,
-and on application shutdown, through the Spiral finalizer. Spans still queued are lost when the worker is killed hard,
-e.g. by `SIGKILL` or the RoadRunner stop timeout.
+and on application shutdown, through the Spiral finalizer; how often is set by [`flush`](#configuration). Spans
+still queued are lost when the worker is killed hard, e.g. by `SIGKILL` or the RoadRunner stop timeout.
 
 The names, attributes and status of the spans of Spiral components, like the SERVER span of a request and its HTTP attributes, are set by those components, `spiral/http` among them; the bridge exports them as they are.
 
@@ -95,6 +95,75 @@ A status set on a Spiral span is exported as the OpenTelemetry span status:
 
 When the traced callback throws, the span keeps its name and attributes and gets status `Error` with the exception message, unless the callback set `Ok` or `Error`.
 
+## Configuration
+
+The SDK itself is configured with the `OTEL_*` variables only. `config/opentelemetry.php` holds the settings of the bridge; every key is optional, and these are the defaults:
+
+```php
+<?php
+
+return [
+    // Where the tracer provider and propagator come from:
+    // 'auto'    - from OpenTelemetry\API\Globals when the SDK autoloader has built them
+    //             (OTEL_PHP_AUTOLOAD_ENABLED=true), otherwise built by the bridge;
+    // 'bridge'  - always built by the bridge, ignoring a provider in Globals, and registered in Globals;
+    // 'globals' - always taken from Globals, whoever put them there; when Globals has no SDK provider,
+    //             a warning is logged and the bridge builds its own.
+    'mode' => 'auto',
+
+    // Suppress the spans of open-telemetry/opentelemetry-auto-psr15 that double Spiral ones, see PSR-15 below.
+    // Applies to the provider the bridge builds.
+    'suppress_psr15' => true,
+
+    // When the end of a request or job flushes the provider.
+    'flush' => [
+        // After every N-th request or job; 0 - never, only on shutdown.
+        'every' => 1,
+        // Seconds: also flush when at least this much time has passed since the last flush; null - off.
+        'interval' => null,
+    ],
+];
+```
+
+A wrong value fails the boot with `Spiral\OpenTelemetry\Exception\InvalidConfigException`.
+
+### Flushing
+
+A flush after every request or job keeps spans from waiting in a worker that goes idle, at the cost of an export per request. With `every` above 1, or `0`, the count, or `interval`, decides when the end of a request flushes; either one is enough. The count and the time are kept per worker process, and the app shutting down always flushes. Meanwhile:
+
+- the batch processor still exports by itself when a span ends and the batch is full, `OTEL_BSP_MAX_EXPORT_BATCH_SIZE`, or `OTEL_BSP_SCHEDULE_DELAY` has passed since the batch got its first span; it has no timer, so the spans of an idle worker wait for the next request or the shutdown;
+- spans beyond `OTEL_BSP_MAX_QUEUE_SIZE` are dropped, so `every` times the spans of a request has to fit the queue;
+- the more spans wait, the more are lost when the worker is killed hard.
+
+`interval` bounds the delay of a busy worker with a large `every`; it is checked only when a request or job ends.
+
+### Sampler and resource
+
+The provider the bridge builds takes the sampler and the resource from the container, `OpenTelemetry\SDK\Trace\SamplerInterface` and `OpenTelemetry\SDK\Resource\ResourceInfo`. By default they come from the env, as in the SDK: `OTEL_TRACES_SAMPLER`, and `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME` and the detectors. Bind your own in a bootloader to replace them, for example to add resource attributes:
+
+```php
+use OpenTelemetry\SDK\Common\Attribute\Attributes;
+use OpenTelemetry\SDK\Resource\ResourceInfo;
+use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
+use Spiral\Boot\Bootloader\Bootloader;
+
+final class TelemetryResourceBootloader extends Bootloader
+{
+    protected const SINGLETONS = [
+        ResourceInfo::class => [self::class, 'initResource'],
+    ];
+
+    public function initResource(): ResourceInfo
+    {
+        return ResourceInfoFactory::defaultResource()->merge(
+            ResourceInfo::create(Attributes::create(['deployment.environment.name' => 'production'])),
+        );
+    }
+}
+```
+
+Both are built with the provider, on first use. A provider taken from `Globals` has the sampler and resource of whoever built it.
+
 ## Auto-instrumentation with ext-opentelemetry
 
 The bridge works with and without the [`opentelemetry` extension](https://opentelemetry.io/docs/zero-code/php/). With it, auto-instrumentation packages (`open-telemetry/opentelemetry-auto-*`) add spans for code Spiral does not trace: database drivers, HTTP clients, caches.
@@ -102,7 +171,7 @@ The bridge works with and without the [`opentelemetry` extension](https://opente
 The spans of those hooks and the Spiral spans form one trace and go through one SDK pipeline:
 
 - When the app boots, the bridge registers its tracer provider and propagator as the global ones that auto-instrumentation takes from `OpenTelemetry\API\Globals`. The provider is still built on first use. Spans of hooks are flushed together with the Spiral spans at the end of each request or job, so under RoadRunner they are not held until the worker exits.
-- With `OTEL_PHP_AUTOLOAD_ENABLED=true` the SDK autoloader configures the global provider and propagator, from the env or from `OTEL_CONFIG_FILE`, and the bridge takes them from `Globals`. The bridge flushes that provider after every request or job, while shutting it down is left to the SDK at process exit. The autoloader decides when Composer loads, so the variable has to be in the process environment or `php.ini`: set only in `.env`, it is reported and the bridge builds its own provider.
+- With `OTEL_PHP_AUTOLOAD_ENABLED=true` the SDK autoloader configures the global provider and propagator, from the env or from `OTEL_CONFIG_FILE`, and the bridge takes them from `Globals`. The bridge flushes that provider after every request or job, while shutting it down is left to the SDK at process exit. The autoloader decides when Composer loads, so the variable has to be in the process environment or `php.ini`: set only in `.env`, it is reported and the bridge builds its own provider. The [`mode`](#configuration) setting overrides this choice.
 - Spans that hooks start while the exporter sends a batch, like the PSR-18 or curl request of the OTLP exporter itself, are not recorded, so that every flush does not send a new trace of its own.
 
 ### PSR-15
@@ -118,9 +187,11 @@ Disabling that instrumentation gives the same tree:
 OTEL_PHP_DISABLED_INSTRUMENTATIONS=psr15
 ```
 
-Nothing else is suppressed: a request handled inside a request or a job run inside a job keeps both spans. Suppression by span kind or by semantic conventions is opt-in, with `OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY=spankind` or `semconv`, as the SDK reads it.
+`'suppress_psr15' => false` keeps those spans.
 
-With `OTEL_PHP_AUTOLOAD_ENABLED=true` the provider comes from the SDK, so the bridge cannot suppress anything: disable psr15 or configure suppression in the SDK.
+Nothing else is suppressed: a request handled inside a request or a job run inside a job keeps both spans. Suppression by span kind or by semantic conventions is opt-in, with `OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY=spankind` or `semconv`, as the SDK reads it, whatever `suppress_psr15` is.
+
+With a provider taken from `Globals`, as with `OTEL_PHP_AUTOLOAD_ENABLED=true`, the bridge cannot suppress anything: disable psr15 or configure suppression in the SDK.
 
 A span left active when a request or job ends would become the parent of every later span of the worker and hide the incoming trace context; the bridge writes a warning to the SDK log when it sees one.
 
@@ -135,5 +206,6 @@ Spans of hooks nest under the active span. A Spiral trace that is not `scoped`, 
 - A callback that throws makes the span `Error` with the exception message and keeps the name and attributes set in it.
 - `getContext()` returns the context of the span running where it is called, with the baggage; after all traces have ended, the trace context of the last finished outermost one, without baggage.
 - With `opentelemetry-auto-psr15`, its spans that double Spiral ones are suppressed.
-- `OpenTelemetryBootloader::initTraceProvider()` takes the span processor from the container instead of a parameter.
+- `OpenTelemetryBootloader::initTraceProvider()` takes the span processor, the sampler and the resource from the container instead of a parameter, and the `OpenTelemetryConfig`, as `initTextMapPropagator()` does.
+- The bridge has a config of its own, `opentelemetry`, see [Configuration](#configuration); the bootloader reads it, and registers the provider in `Globals`, in `boot()`.
 - Dependencies: `open-telemetry/sdk` `>=1.9 <1.16`, `open-telemetry/api` `^1.7`, `open-telemetry/context` `^1.4`; `open-telemetry/opentelemetry-auto-psr15` conflicts outside `>=1.0.6 <1.4`.
