@@ -97,22 +97,12 @@ final readonly class ReceivedSpan
     }
 
     /**
-     * An HTTP attribute spiral/http sets, under its stable semantic convention key or the older one,
-     * whichever the installed spiral/http writes.
-     */
-    public function httpAttribute(string $stable, string $old): mixed
-    {
-        return $this->attributes[$stable] ?? $this->attributes[$old] ?? null;
-    }
-
-    /**
-     * The request target spiral/http records: `url.path` and `url.query`, or the older `http.url`.
+     * The request target spiral/http records in `url.path` and `url.query`.
      */
     public function httpTarget(): ?string
     {
         if (!isset($this->attributes['url.path'])) {
-            $url = $this->attributes['http.url'] ?? null;
-            return \is_string($url) ? $url : null;
+            return null;
         }
 
         $query = $this->attributes['url.query'] ?? '';

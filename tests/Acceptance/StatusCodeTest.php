@@ -13,7 +13,6 @@ use Spiral\Testing\Attribute\Env;
 use Testo\Assert;
 use Testo\Data\DataProvider;
 use Testo\Data\DataSet;
-use Testo\Skip;
 use Testo\Test;
 
 /**
@@ -140,18 +139,14 @@ final class StatusCodeTest extends TestCase
 
         $span = $this->traces()->await(1)->server();
         $response->assertStatus($code);
-        Assert::same($span->httpAttribute('http.response.status_code', 'http.status_code'), $code);
+        Assert::same($span->attributes['http.response.status_code'] ?? null, $code);
         $isError
             ? Assert::same($span->statusCode, ReceivedSpan::STATUS_ERROR)
             : Assert::notSame($span->statusCode, ReceivedSpan::STATUS_ERROR);
         Assert::same($span->statusMessage, '');
     }
 
-    /**
-     * `spiral/http` sets 'OK' itself, which the bridge cannot tell from an explicit Ok.
-     */
     #[DataProvider('httpServerResponses')]
-    #[Skip('Known issue: spiral/http sets status OK for every response below 500, see https://github.com/spiral/framework/issues/1311')]
     public function serverSpanOfRequestIsUnsetForNon5xxResponse(int $code, bool $isError): void
     {
         $this->fakeHttp()->get('/', query: ['code' => (string) $code]);
