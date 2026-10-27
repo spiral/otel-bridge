@@ -31,7 +31,7 @@
         "php": ">=8.2",
         "open-telemetry/api": "^1.7",
         "open-telemetry/context": "^1.4",
-        "open-telemetry/sdk": ">=1.9 <1.16",
+        "open-telemetry/sdk": "^1.9",
         "spiral/boot": "^3.18",
         "spiral/core": "^3.18",
         "spiral/events": "^3.18",
@@ -41,6 +41,7 @@
     },
     "conflict": {
         "open-telemetry/opentelemetry-auto-psr15": "<1.0.6 || >=1.4",
+        "open-telemetry/sdk": ">=1.16",
         "open-telemetry/sem-conv": "<1.22"
     },
     "require-dev": {
