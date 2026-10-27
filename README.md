@@ -11,8 +11,8 @@
 
 [![Psalm Level](https://shepherd.dev/github/spiral/otel-bridge/level.svg)](https://shepherd.dev/github/spiral/otel-bridge)
 [![Type Coverage](https://shepherd.dev/github/spiral/otel-bridge/coverage.svg)](https://shepherd.dev/github/spiral/otel-bridge)
-[![Codecov](https://codecov.io/gh/spiral/otel-bridge/branch/master/graph/badge.svg)](https://codecov.io/gh/spiral/otel-bridge)
-[![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fspiral%2Fotel-bridge%2Fmaster)](https://dashboard.stryker-mutator.io/reports/github.com/spiral/otel-bridge/master)
+[![Codecov](https://codecov.io/gh/spiral/otel-bridge/branch/2.x/graph/badge.svg)](https://codecov.io/gh/spiral/otel-bridge)
+[![Mutation testing badge](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fspiral%2Fotel-bridge%2F2.x)](https://dashboard.stryker-mutator.io/reports/github.com/spiral/otel-bridge/2.x)
 
 </div>
 
@@ -64,7 +64,6 @@ OTEL_SERVICE_NAME=php # Your application name
 OTEL_TRACES_EXPORTER=otlp
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
-OTEL_PHP_TRACES_PROCESSOR=simple
 ```
 
 The exporter is created lazily, on the first export. The full list of variables is in the [OpenTelemetry SDK configuration](https://opentelemetry.io/docs/languages/sdk-configuration/).
