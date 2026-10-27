@@ -73,10 +73,10 @@ final class SpiralIntegrationTest extends TestCase
 
         $server = $this->traces()->await(5)->server();
         Assert::string($server->name)->startsWith('GET');
-        Assert::same($server->httpAttribute('http.request.method', 'http.method'), 'GET');
+        Assert::same($server->attributes['http.request.method'] ?? null, 'GET');
         Assert::same($server->httpTarget(), $target);
-        Assert::same($server->httpAttribute('http.response.status_code', 'http.status_code'), 200);
-        Assert::same($server->httpAttribute('http.response.body.size', 'http.response_content_length'), 6);
+        Assert::same($server->attributes['http.response.status_code'] ?? null, 200);
+        Assert::same($server->attributes['http.response.body.size'] ?? null, 6);
     }
 
     /**
@@ -94,10 +94,10 @@ final class SpiralIntegrationTest extends TestCase
         $response->assertStatus(201);
         Assert::same($this->getContainer()->get(SpiralIntegrationOutbox::class)->delivered, ['carol@example.com']);
         Assert::count($spans, 6, "Received:\n{$spans}");
-        Assert::same($server->httpAttribute('http.request.method', 'http.method'), 'POST');
+        Assert::same($server->attributes['http.request.method'] ?? null, 'POST');
         Assert::same($server->httpTarget(), '/orders');
-        Assert::same($server->httpAttribute('http.response.status_code', 'http.status_code'), 201);
-        Assert::same($server->httpAttribute('http.response.body.size', 'http.response_content_length'), \strlen($jobId));
+        Assert::same($server->attributes['http.response.status_code'] ?? null, 201);
+        Assert::same($server->attributes['http.response.body.size'] ?? null, \strlen($jobId));
         Assert::contains([ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET], $server->statusCode);
         Assert::same($spans->named(self::PUSH_SPAN)->parentSpanId, $spans->named(self::PIPELINE_SPAN)->spanId);
         Assert::same($job->kind, ReceivedSpan::KIND_CONSUMER);

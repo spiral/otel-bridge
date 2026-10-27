@@ -37,7 +37,7 @@ final class HttpTest extends TestCase
         Assert::same($span->parentSpanId, self::REMOTE_SPAN_ID);
         # spiral/http sets Ok below 500, or leaves it Unset as the HTTP conventions say.
         Assert::contains([ReceivedSpan::STATUS_OK, ReceivedSpan::STATUS_UNSET], $span->statusCode);
-        Assert::same($span->httpAttribute('http.request.method', 'http.method'), 'GET');
-        Assert::same($span->httpAttribute('http.response.status_code', 'http.status_code'), 200);
+        Assert::same($span->attributes['http.request.method'] ?? null, 'GET');
+        Assert::same($span->attributes['http.response.status_code'] ?? null, 200);
     }
 }
