@@ -33,10 +33,10 @@ composer require spiral/otel-bridge
 [![License](https://img.shields.io/packagist/l/spiral/otel-bridge.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/spiral/otel-bridge.svg?style=flat-square)](https://packagist.org/packages/spiral/otel-bridge/stats)
 
-Install an exporter as well, for example OTLP, which sends spans with any PSR-18 HTTP client, such as `symfony/http-client` or `guzzlehttp/guzzle`:
+Install an exporter as well, for example OTLP:
 
 ```bash
-composer require open-telemetry/exporter-otlp symfony/http-client
+composer require open-telemetry/exporter-otlp
 ```
 
 Then add the bootloader to your application kernel:
