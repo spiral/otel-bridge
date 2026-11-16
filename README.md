@@ -115,7 +115,7 @@ composer require open-telemetry/opentelemetry-auto-guzzle
 
 PIE enables the extension; if `php -m` does not list `opentelemetry`, add `extension=opentelemetry` to `php.ini`.
 
-Packages moved to SPI register through the SDK autoloader only, which runs with `OTEL_PHP_AUTOLOAD_ENABLED=true` in the process environment or `php.ini` and needs the `tbachert/spi` Composer plugin allowed in `config.allow-plugins`. `psr18` does so from the release after 1.4.0.
+Packages moved to SPI register through the SDK autoloader only, which runs with `OTEL_PHP_AUTOLOAD_ENABLED=true` in the process environment or `php.ini` and needs the `tbachert/spi` Composer plugin allowed in `config.allow-plugins`. With it, the bridge takes the provider of the SDK, with the consequences described above. `psr18` registers this way from the release after 1.4.0.
 
 Packages useful in a Spiral app, all `open-telemetry/opentelemetry-auto-*`:
 
