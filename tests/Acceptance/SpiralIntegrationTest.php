@@ -107,15 +107,17 @@ final class SpiralIntegrationTest extends TestCase
     }
 
     /**
-     * The job has to continue the span running when it is pushed, the `HTTP Pipeline`; the job headers
-     * carry a span the tracer started and ended before it.
+     * The sync driver runs the job inside the scoped push span, so the job nests under `Job push`, which
+     * runs in the `HTTP Pipeline`.
      */
     public function jobPushedByRequestHandlerContinuesSpanRunningAtPush(): void
     {
         $this->fakeHttp()->post('/orders', ['to' => 'carol@example.com'])->assertStatus(201);
 
         $spans = $this->traces()->await(6);
-        Assert::same($spans->named(self::JOB_SPAN)->parentSpanId, $spans->named(self::PIPELINE_SPAN)->spanId);
+        $push = $spans->named(self::PUSH_SPAN);
+        Assert::same($push->parentSpanId, $spans->named(self::PIPELINE_SPAN)->spanId);
+        Assert::same($spans->named(self::JOB_SPAN)->parentSpanId, $push->spanId);
     }
 
     public function consecutiveRequestsArriveAsIndependentTraces(): void
@@ -216,14 +218,10 @@ final class SpiralIntegrationTest extends TestCase
     }
 
     /**
-     * spiral/queue takes the job headers from the tracer before it starts its push span, so the job
-     * continues the span that pushed it, next to the push span; a span the job handler starts nests
-     * under the CONSUMER span. The sync driver runs the job while `checkout` is still active, so `checkout`
-     * is its local parent rather than a remote one from the job headers.
-     *
-     * @todo Question: messaging conventions have the consumer continue the producer's own span, of kind
-     *       PRODUCER (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/); spiral/queue
-     *       makes the push span INTERNAL and does not propagate it. Lock this in, or treat it as an issue?
+     * The push span is the PRODUCER the job's CONSUMER span continues, as the messaging conventions have it
+     * (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/). The sync driver runs the job
+     * inside the scoped push span, so `Job push` is its local parent; a span the job handler starts nests
+     * under the CONSUMER span.
      */
     public function pushedJobContinuesTraceOfPushingSpan(): void
     {
@@ -244,8 +242,8 @@ final class SpiralIntegrationTest extends TestCase
         Assert::count($spans, 4, "Received:\n{$spans}");
         Assert::true($checkout->isRoot());
         Assert::same($push->parentSpanId, $checkout->spanId);
-        Assert::same($push->kind, ReceivedSpan::KIND_INTERNAL);
-        Assert::same($job->parentSpanId, $checkout->spanId);
+        Assert::same($push->kind, ReceivedSpan::KIND_PRODUCER);
+        Assert::same($job->parentSpanId, $push->spanId);
         Assert::same($job->kind, ReceivedSpan::KIND_CONSUMER);
         Assert::same($job->flags, self::FLAGS_LOCAL_PARENT);
         Assert::same($deliver->parentSpanId, $job->spanId);
