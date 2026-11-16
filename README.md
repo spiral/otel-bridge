@@ -104,6 +104,57 @@ The spans of those hooks and the Spiral spans form one trace and go through one 
 - With `OTEL_PHP_AUTOLOAD_ENABLED=true` the SDK autoloader configures the global provider and propagator, from the env or from the file of `OTEL_CONFIG_FILE` (`OTEL_EXPERIMENTAL_CONFIG_FILE` before SDK 1.14), which needs `open-telemetry/sdk-configuration`, and the bridge takes them from `Globals`. The bridge flushes that provider after every request or job, while shutting it down is left to the SDK at process exit. The autoloader decides when Composer loads, so the variable has to be in the process environment or `php.ini`: set only in `.env`, it is reported and the bridge builds its own provider.
 - Spans that hooks start while the exporter sends a batch, like the PSR-18 or curl request of the OTLP exporter itself, are not recorded, so that every flush does not send a new trace of its own.
 
+### Packages
+
+A package registers its hooks on classes, interfaces and functions when Composer loads its `autoload.files` entry, `_register.php`. Installing it is all it takes: nothing has to be turned on, and `OTEL_PHP_AUTOLOAD_ENABLED` is not needed, since the hooks take the tracer and propagator from `Globals`, where the bridge puts its own. The packages require `ext-opentelemetry`; where the extension is not loaded at runtime, `_register.php` triggers a warning and registers nothing.
+
+```bash
+pecl install opentelemetry   # or: pie install open-telemetry/ext-opentelemetry
+                             # then extension=opentelemetry in php.ini
+composer require open-telemetry/opentelemetry-auto-psr18
+```
+
+Packages useful in a Spiral app, all `open-telemetry/opentelemetry-auto-*`:
+
+| Package | Name | Hooks |
+|---|---|---|
+| `psr18` | `psr18` | `sendRequest()` of any PSR-18 client |
+| `guzzle` | `guzzle` | every Guzzle request: `send()`, `request()`, `get()` and the like, sync and async |
+| `symfony` | `symfony` | `request()` of Symfony HttpClient, together with HttpKernel and Messenger; requires `symfony/http-kernel` |
+| `curl` | `curl` | `curl_exec()` and `curl_multi_*` |
+| `pdo` | `pdo` | `PDO` and `PDOStatement`: connect, query, exec, prepare, execute, transactions |
+| `mysqli` | `mysqli` | `mysqli` functions and methods |
+| `postgresql` | `postgresql` | `pg_*` functions of `ext-pgsql` |
+| `psr16` | `psr16` | PSR-16 `CacheInterface`, which the `spiral/cache` storages implement |
+| `ext-amqp` | `ext_amqp` | `AMQPExchange::publish()` and `AMQPQueue` ack, nack, reject of `ext-amqp` |
+
+The HTTP client packages add the propagator headers, `traceparent` among them, to the request. `psr18` sees only `sendRequest()`: Guzzle's `request()` or Symfony's `request()` need their own package. A client called through `sendRequest()` with both `psr18` and its own package installed gives two nested `CLIENT` spans; disable one of them.
+
+### Enabling and disabling
+
+`OTEL_PHP_DISABLED_INSTRUMENTATIONS` takes a comma-separated list of the names from the table, or `all`:
+
+```bash
+OTEL_PHP_DISABLED_INSTRUMENTATIONS=guzzle,psr18
+```
+
+Each `_register.php` reads it while Composer autoloads, before Spiral loads `.env`, so, as with `OTEL_PHP_AUTOLOAD_ENABLED`, it has to be in the process environment or `php.ini`: the SDK reads `getenv()`, then `$_SERVER`, then `get_cfg_var()`. Set only in `.env`, it has no effect. For example:
+
+- RoadRunner: `server.env` in `.rr.yaml`, or the environment of the `rr` process (Docker, systemd):
+
+  ```yaml
+  server:
+    env:
+      - OTEL_PHP_DISABLED_INSTRUMENTATIONS: guzzle
+  ```
+
+- php-fpm: `env[OTEL_PHP_DISABLED_INSTRUMENTATIONS] = guzzle` in the pool;
+- `php.ini`: `OTEL_PHP_DISABLED_INSTRUMENTATIONS = guzzle`.
+
+Under RoadRunner the hooks are registered once per worker, when it starts, so a new value applies to new workers only: a change in `php.ini` after `rr reset`, a change in `.rr.yaml` or in the environment of `rr` after `rr` restarts.
+
+`OTEL_SDK_DISABLED=true` does not remove the hooks, as the `_register.php` files do not check it. The bridge then builds a no-op provider, so nothing is exported, but the hooks still run on every call. To drop them, list them in `OTEL_PHP_DISABLED_INSTRUMENTATIONS`.
+
 ### PSR-15
 
 The HTTP stack of Spiral is PSR-15, so `open-telemetry/opentelemetry-auto-psr15` hooks into it. With the provider built by the bridge, the spans in which it doubles Spiral are suppressed, and the tree of a request is the same as without the extension:
@@ -111,11 +162,7 @@ The HTTP stack of Spiral is PSR-15, so `open-telemetry/opentelemetry-auto-psr15`
 - its `SERVER` span of `Spiral\Http\Http::handle()` is suppressed, and the `SERVER` span of Spiral stays the root of the request, under the incoming parent;
 - its `INTERNAL` spans of every request handler and middleware are suppressed, as Spiral traces its middleware pipeline itself.
 
-Disabling that instrumentation gives the same tree:
-
-```dotenv
-OTEL_PHP_DISABLED_INSTRUMENTATIONS=psr15
-```
+Disabling that instrumentation with `OTEL_PHP_DISABLED_INSTRUMENTATIONS=psr15` in the process environment or `php.ini`, not in `.env` (see [Enabling and disabling](#enabling-and-disabling)), gives the same tree.
 
 Nothing else is suppressed: a request handled inside a request or a job run inside a job keeps both spans. Suppression by span kind or by semantic conventions is opt-in, with `OTEL_EXPERIMENTAL_SPAN_SUPPRESSION_STRATEGY=spankind` or `semconv`, as the SDK reads it.
 
