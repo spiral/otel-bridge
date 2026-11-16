@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/spiral/otel-bridge/compare/2.0.0...2.0.1) (2026-11-16)
+
+
+### Documentation
+
+* list auto-instrumentation packages and how to disable them ([#50](https://github.com/spiral/otel-bridge/issues/50)) ([cfce3e5](https://github.com/spiral/otel-bridge/commit/cfce3e5abf814c57a88ac3d08ee1db4dd2fac9ee))
+
 ## [2.0.0](https://github.com/spiral/otel-bridge/compare/1.3.0...2.0.0) (2026-10-27)
 
 
