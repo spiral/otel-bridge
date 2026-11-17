@@ -9,6 +9,7 @@ use OpenTelemetry\API\Trace\Span as OtelSpan;
 use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
+use OpenTelemetry\API\Trace\TraceFlags;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
@@ -21,6 +22,7 @@ use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\CurrentSpan;
+use Spiral\OpenTelemetry\Span\ActiveTrace;
 use Spiral\OpenTelemetry\Span\NoopSpan;
 use Spiral\OpenTelemetry\Span\OtelSpanAdapter;
 use Spiral\OpenTelemetry\Span\SpanConverter;
@@ -35,9 +37,11 @@ use Testo\Test;
 
 #[Test]
 #[Covers(CurrentSpan::class)]
+#[Covers(ActiveTrace::class)]
 #[Covers(NoopSpan::class)]
 #[Covers(OtelSpanAdapter::class)]
 #[Covers(SpanConverter::class)]
+#[Covers(Tracer::class)]
 final class CurrentSpanTest
 {
     private InMemoryExporter $exporter;
@@ -191,13 +195,17 @@ final class CurrentSpanTest
         }, $kind);
     }
 
-    #[DataSet([false], 'not scoped')]
-    #[DataSet([true], 'scoped')]
-    public function isNoopInsideNonRecordingSpan(bool $scoped): void
+    #[DataSet([false, false], 'not scoped')]
+    #[DataSet([true, false], 'scoped')]
+    #[DataSet([false, true], 'not scoped, remote')]
+    #[DataSet([true, true], 'scoped, remote')]
+    public function isNoopInsideNonRecordingSpan(bool $scoped, bool $remote): void
     {
-        $this->tracer->trace('trace', static function (): void {
-            $unsampled = SpanContext::create('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331');
-            $scope = OtelSpan::wrap($unsampled)->activate();
+        $this->tracer->trace('trace', static function () use ($remote): void {
+            $context = $remote
+                ? SpanContext::createFromRemoteParent('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', TraceFlags::SAMPLED)
+                : SpanContext::create('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331');
+            $scope = OtelSpan::wrap($context)->activate();
             Assert::instanceOf(CurrentSpan::get()->setAttribute('in', 'unsampled'), NoopSpan::class);
             $scope->detach();
         }, scoped: $scoped);
@@ -400,6 +408,168 @@ final class CurrentSpanTest
         } finally {
             $leaked?->detach();
         }
+    }
+
+    /**
+     * @param list<int|string> $codes
+     */
+    #[DataSet([[500, 200], StatusCode::STATUS_ERROR], 'unset ignored')]
+    #[DataSet([['ok', 'error'], StatusCode::STATUS_OK], 'ok final')]
+    #[DataSet([['error', 'ok'], StatusCode::STATUS_OK], 'error then ok')]
+    #[DataSet([[2], StatusCode::STATUS_ERROR], 'no description')]
+    public function activeSpanStatusFollowsSdkRules(array $codes, string $expected): void
+    {
+        $this->inSpan('test', static function () use ($codes, $expected): void {
+            $span = CurrentSpan::get();
+            foreach ($codes as $code) {
+                $span->setStatus($code);
+            }
+
+            Assert::same($span->getStatus()?->code, $expected);
+            Assert::null($span->getStatus()?->description);
+        });
+
+        Assert::same($this->span('test')->getStatus()->getCode(), $expected);
+    }
+
+    public function activeSpanAttributeSetToNullIsRemoved(): void
+    {
+        $this->inSpan('test', static function (): void {
+            $span = CurrentSpan::get()->setAttribute('count', 3)->setAttribute('count', null);
+
+            Assert::false($span->hasAttribute('count'));
+            Assert::same($span->getAttributes(), []);
+        });
+
+        Assert::same($this->span('test')->getAttributes()->toArray(), []);
+    }
+
+    public function isInnermostTraceOfAnyTracer(): void
+    {
+        $other = new Tracer(
+            new Container(),
+            $this->provider->getTracer('other'),
+            TraceContextPropagator::getInstance(),
+        );
+
+        $this->tracer->trace('outer', static function (SpanInterface $outer) use ($other): void {
+            $other->trace('inner', static fn(SpanInterface $inner) => Assert::same(CurrentSpan::get(), $inner));
+            Assert::same(CurrentSpan::get(), $outer);
+        });
+    }
+
+    public function isNoopInsideSpanSuppressedInSpanActivatedInsideTrace(): void
+    {
+        $this->tracer->trace('trace', function (): void {
+            $this->inSpan('inner', static function (): void {
+                $scope = OtelSpan::wrap(OtelSpan::getCurrent()->getContext())->activate();
+                try {
+                    Assert::instanceOf(CurrentSpan::get()->setAttribute('in', 'suppressed'), NoopSpan::class);
+                } finally {
+                    $scope->detach();
+                }
+            });
+        }, scoped: true);
+
+        Assert::same($this->span('trace')->getAttributes()->toArray(), []);
+        Assert::same($this->span('inner')->getAttributes()->toArray(), []);
+    }
+
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function isNoopInContextOfEndedGrandchildSpanOfTrace(bool $scoped): void
+    {
+        $this->tracer->trace('trace', function () use ($scoped): void {
+            $context = null;
+            $this->inSpan('child', function () use (&$context): void {
+                $this->inSpan('grandchild', static function () use (&$context): void {
+                    $context = Context::getCurrent();
+                });
+            });
+            $scope = $context->activate();
+            try {
+                Assert::instanceOf(CurrentSpan::get(), NoopSpan::class);
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: $scoped);
+    }
+
+    #[DataSet([false, false], 'not scoped')]
+    #[DataSet([true, false], 'scoped')]
+    #[DataSet([false, true], 'not scoped, ended span in it')]
+    #[DataSet([true, true], 'scoped, ended span in it')]
+    public function isRunningSpanInContextOfTraceEndedInIt(bool $scoped, bool $withEndedSpan): void
+    {
+        $this->inSpan('enclosing', function () use ($scoped, $withEndedSpan): void {
+            $context = $this->tracer->trace('trace', function () use ($withEndedSpan): ContextInterface {
+                if (!$withEndedSpan) {
+                    return Context::getCurrent();
+                }
+                $context = null;
+                $this->inSpan('ended', static function () use (&$context): void {
+                    $context = Context::getCurrent();
+                });
+                return $context;
+            }, scoped: $scoped);
+            $scope = $context->activate();
+            try {
+                Assert::instanceOf(CurrentSpan::get()->setAttribute('in', 'enclosing'), OtelSpanAdapter::class);
+            } finally {
+                $scope->detach();
+            }
+        });
+
+        Assert::same($this->span('enclosing')->getAttributes()->toArray(), ['in' => 'enclosing']);
+        Assert::same($this->span('trace')->getAttributes()->toArray(), []);
+    }
+
+    /**
+     * The invalid span has the id active in a trace with no span around it, and an ended root span has it as its
+     * parent's.
+     */
+    #[DataSet([false, false, true], 'not scoped')]
+    #[DataSet([true, false, false], 'scoped')]
+    #[DataSet([false, true, false], 'not scoped, inside span')]
+    public function isTraceInsideInvalidOrEndedRootSpanWithNoSpanAroundIt(bool $scoped, bool $enclosed, bool $isTrace): void
+    {
+        $run = fn() => $this->tracer->trace('trace', function (SpanInterface $trace) use ($isTrace): void {
+            $root = $this->provider->getTracer('test')->spanBuilder('root')->setParent(false)->startSpan();
+            $root->end();
+            foreach ([OtelSpan::getInvalid(), $root] as $span) {
+                $scope = $span->activate();
+                try {
+                    $isTrace
+                        ? Assert::same(CurrentSpan::get(), $trace)
+                        : Assert::instanceOf(CurrentSpan::get(), NoopSpan::class);
+                } finally {
+                    $scope->detach();
+                }
+            }
+        }, scoped: $scoped);
+
+        $enclosed ? $this->inSpan('enclosing', $run) : $run();
+    }
+
+    /**
+     * The SDK keeps the id of a span's parent only, so an ended span made a child of the trace's span by
+     * hand is taken for one activated right inside the trace even while another span runs.
+     */
+    public function isTraceInsideEndedSpanGivenTraceSpanAsParentByHand(): void
+    {
+        $this->tracer->trace('trace', function (SpanInterface $trace): void {
+            $traceContext = Context::getCurrent();
+            $this->inSpan('running', function () use ($trace, $traceContext): void {
+                $span = $this->provider->getTracer('test')->spanBuilder('by hand')->setParent($traceContext)->startSpan();
+                $span->end();
+                $scope = $span->activate();
+                try {
+                    Assert::same(CurrentSpan::get(), $trace);
+                } finally {
+                    $scope->detach();
+                }
+            });
+        }, scoped: true);
     }
 
     private function span(string $name): SpanDataInterface
