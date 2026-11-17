@@ -28,6 +28,7 @@ use Spiral\OpenTelemetry\Tests\Feature\Fixture\SelfJson;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\StringableJson;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\ThrowingJson;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\ThrowingString;
+use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
@@ -44,6 +45,7 @@ use Testo\Test;
  */
 #[Test]
 #[Covers(Tracer::class)]
+#[Covers(SpanConverter::class)]
 final class TracerExportTest
 {
     private const TRACE_ID = '0af7651916cd43dd8448eb211c80319c';

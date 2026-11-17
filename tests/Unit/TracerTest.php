@@ -14,6 +14,7 @@ use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\ContextKeys;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Container;
+use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Testo\Assert;
@@ -24,6 +25,7 @@ use Testo\Test;
 
 #[Test]
 #[Covers(Tracer::class)]
+#[Covers(SpanConverter::class)]
 final class TracerTest
 {
     private DoubleInterface&TracerInterface $otelTracer;
