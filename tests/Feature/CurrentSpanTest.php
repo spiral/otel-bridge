@@ -366,7 +366,8 @@ final class CurrentSpanTest
     public function isOuterTraceAfterNestedTraceLeftScopeAttached(bool $scoped): void
     {
         $assertions = (string) \ini_get('zend.assertions');
-        \ini_set('zend.assertions', '0');
+        # -1, as in production, can only be changed in php.ini, and leaves debug scopes off already.
+        $assertions === '1' and \ini_set('zend.assertions', '0');
         $leaked = null;
         try {
             $this->tracer->trace('outer', function () use (&$leaked, $scoped): void {
@@ -377,7 +378,7 @@ final class CurrentSpanTest
             }, scoped: $scoped);
         } finally {
             $leaked?->detach();
-            \ini_set('zend.assertions', $assertions);
+            $assertions === '1' and \ini_set('zend.assertions', $assertions);
         }
 
         Assert::same($this->span('outer')->getAttributes()->toArray(), ['in' => 'outer']);
