@@ -92,13 +92,17 @@ final class Tracer extends AbstractTracer
             try {
                 self::copySpan($internalSpan, $traceSpan, $traceKind, $error);
             } finally {
-                $traceSpan->end();
-                $active->end();
+                # Each step runs even when the one before throws: a span processor in end(), or detach()
+                # in a Spiral app when the callback left a scope attached and debug scopes are on.
                 try {
-                    # Throws in a Spiral app when the callback left a scope attached and debug scopes are on.
-                    $scope->detach();
+                    $traceSpan->end();
                 } finally {
-                    $this->leave($traceSpan);
+                    $active->end();
+                    try {
+                        $scope->detach();
+                    } finally {
+                        $this->leave($traceSpan);
+                    }
                 }
             }
         }

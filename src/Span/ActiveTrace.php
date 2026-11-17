@@ -25,9 +25,11 @@ final class ActiveTrace
 
     /**
      * @param string $activeSpanId The id of the OTel span active in the trace's own context: the trace's
-     *        span when it is scoped, the enclosing one otherwise. A span with another id active later was
-     *        activated inside the trace. By id, as a suppressed span is a new non-recording wrapper of its
-     *        parent's span context.
+     *        span when it is scoped, the enclosing one otherwise, the invalid id with none. A span with
+     *        another id active later was activated inside the trace. By id, as a suppressed span is a new
+     *        non-recording wrapper of its parent's span context; for the same reason only a wrapper of this
+     *        span is recognized, not one of a span activated inside the trace. The invalid id also matches
+     *        on purpose: anything with it inside the trace, like `Span::getInvalid()`, means no span.
      */
     private function __construct(
         public readonly SpanInterface $span,

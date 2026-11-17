@@ -11,9 +11,13 @@ use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\ContextInterface;
+use OpenTelemetry\SDK\Common\Future\CancellationInterface;
+use OpenTelemetry\SDK\Trace\ReadableSpanInterface;
+use OpenTelemetry\SDK\Trace\ReadWriteSpanInterface;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
+use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\CurrentSpan;
@@ -220,13 +224,69 @@ final class CurrentSpanTest
     #[DataSet([true], 'scoped')]
     public function isTraceInsideSuppressedSpan(bool $scoped): void
     {
-        $this->tracer->trace('trace', static function (): void {
+        # Under a span, so that a trace not scoped also has a span to wrap: the trace is not its own parent.
+        $this->inSpan('enclosing', fn() => $this->tracer->trace('trace', static function (): void {
             $scope = OtelSpan::wrap(OtelSpan::getCurrent()->getContext())->activate();
             CurrentSpan::get()->setAttribute('in', 'suppressed');
             $scope->detach();
-        }, scoped: $scoped);
+        }, scoped: $scoped));
 
         Assert::same($this->span('trace')->getAttributes()->toArray(), ['in' => 'suppressed']);
+        Assert::same($this->span('enclosing')->getAttributes()->toArray(), []);
+    }
+
+    /**
+     * The span that stays active in a trace not scoped is the enclosing one, which must not take its place.
+     */
+    public function traceNotScopedInsideSpanIsTheTrace(): void
+    {
+        $this->inSpan('enclosing', fn() => $this->tracer->trace(
+            'trace',
+            static fn() => CurrentSpan::get()->setAttribute('in', 'trace'),
+        ));
+
+        Assert::same($this->span('trace')->getAttributes()->toArray(), ['in' => 'trace']);
+        Assert::same($this->span('enclosing')->getAttributes()->toArray(), []);
+    }
+
+    public function traceEndsAllTheSameWhenSpanProcessorThrows(): void
+    {
+        $processor = new class implements SpanProcessorInterface {
+            public bool $throw = true;
+
+            public function onStart(ReadWriteSpanInterface $span, ContextInterface $parentContext): void {}
+
+            public function onEnd(ReadableSpanInterface $span): void
+            {
+                $this->throw and throw new \RuntimeException('Broken processor');
+            }
+
+            public function forceFlush(?CancellationInterface $cancellation = null): bool
+            {
+                return true;
+            }
+
+            public function shutdown(?CancellationInterface $cancellation = null): bool
+            {
+                return true;
+            }
+        };
+        $tracer = new Tracer(
+            new Container(),
+            (new TracerProvider([$processor, new SimpleSpanProcessor($this->exporter)]))->getTracer('test'),
+            TraceContextPropagator::getInstance(),
+        );
+
+        try {
+            $tracer->trace('broken', static fn() => null, scoped: true);
+        } catch (\RuntimeException) {
+        }
+        $processor->throw = false;
+
+        Assert::instanceOf(CurrentSpan::get(), NoopSpan::class);
+        Assert::false(OtelSpan::getCurrent()->getContext()->isValid());
+        $tracer->trace('next', static fn() => null);
+        Assert::string($tracer->getContext()['traceparent'] ?? '')->contains($this->span('next')->getTraceId());
     }
 
     #[DataSet([false], 'not scoped')]

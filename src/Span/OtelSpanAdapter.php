@@ -14,8 +14,10 @@ use Spiral\Telemetry\TraceKind;
 /**
  * An OTel span not started by the bridge, as {@see \Spiral\OpenTelemetry\CurrentSpan} gives it: a span of
  * `#[WithSpan]`, of a hook, or one activated by hand. Values are converted as for a Spiral trace, but
- * written to the OTel span at once, as it has no end of a trace to wait for. So, unlike a trace's span,
- * the getters give converted values, and the SDK's rules apply to the status at once: Ok is final.
+ * written to the OTel span at once, as it has no end of a trace to wait for. So, unlike a trace's span:
+ * the getters give converted values; setAttributes() adds to the attributes rather than replacing them,
+ * which would drop those of the hook; and the SDK's rules apply to the status at once: Ok is final, and
+ * a code that converts to Unset is ignored.
  *
  * @internal
  */

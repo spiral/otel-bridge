@@ -98,7 +98,9 @@ CurrentSpan::get()->setAttribute('dict.org_types.count', \count($types));
 - Inside an OpenTelemetry span activated within the trace, as the span of a [`#[WithSpan]`](#withspan) method or of a hook, it is that span; once the span is detached, as when the method returns, it is the trace's again.
 - Outside a running trace and an active span, it is a span that drops everything.
 
-Values set on it are converted as for the span of a trace. On an OpenTelemetry span they are written at once, so its getters give the converted values, and an `Ok` status is final, as the SDK has it. A span that OpenTelemetry does not record, like one not sampled, drops them.
+Values set on it are converted as for the span of a trace. On an OpenTelemetry span they are written at once, as the SDK has it: the getters give the converted values, `setAttributes()` adds to the attributes rather than replacing them, an `Ok` status is final, and a status that converts to `Unset` is ignored.
+
+A span that OpenTelemetry does not record drops the values. Besides a span not sampled, that is the case in a span suppressed inside an OpenTelemetry span the trace activated, in a remote context activated inside a trace, and in the context of a nested trace that has ended, activated again while the outer one runs. A span suppressed right inside the trace, like that of the psr15 hook on a middleware, is taken for the trace.
 
 For events, exceptions recorded by hand, links and the trace id, use `OpenTelemetry\API\Trace\Span::getCurrent()`: it gives the active OpenTelemetry span, which is a Spiral trace only when it is scoped.
 
