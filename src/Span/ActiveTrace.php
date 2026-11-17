@@ -19,7 +19,8 @@ use Spiral\Telemetry\SpanInterface;
  * Spans are told apart by id rather than by object, as a suppressed span is a new non-recording wrapper of
  * its parent's span context; for the same reason only a wrapper of a span a trace knows is recognized, not
  * one of a span activated inside the trace. The invalid id matches on purpose: inside a trace with no span
- * around it, anything with that id, like `Span::getInvalid()`, means no span.
+ * around it, anything with that id, like `Span::getInvalid()`, means no span; so does any ended root span,
+ * see {@see self::isOf()}.
  *
  * @internal
  */
@@ -59,9 +60,10 @@ final class ActiveTrace
     }
 
     /**
-     * The innermost thing the code runs in: a running trace, or else the OTel span innermost once the
-     * traces that have ended are left out, and an ended OTel span activated right inside a trace. A context
-     * can outlive a trace or a span when it is captured and activated later, or left attached.
+     * The innermost thing the code runs in: a running trace, or else the OTel span innermost once ended
+     * traces are left out. Ended traces are left out, and so is an ended span of one of them as
+     * {@see self::isOf()} tells it, as a context can outlive a trace or a span when it is captured and
+     * activated later, or left attached.
      */
     public static function innermostIn(ContextInterface $context): self|OtelSpanInterface
     {
@@ -90,8 +92,10 @@ final class ActiveTrace
     }
 
     /**
-     * Whether the span is the one active in the trace's own context, or an ended span activated right
-     * inside it. Only one level: the SDK keeps the id of a span's parent, not the parent.
+     * Whether the span is the one active in the trace's own context, or an ended SDK span that is its
+     * child. Only one level, and by the parent id only, as the SDK keeps no more: an ended span made a
+     * child of it by hand while another span runs is taken for one activated right inside the trace, and
+     * so is any ended root span in a trace with no span around it.
      */
     private static function isOf(OtelSpanInterface $span, self $trace): bool
     {
