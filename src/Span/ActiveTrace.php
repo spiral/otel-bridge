@@ -9,6 +9,7 @@ use OpenTelemetry\API\Trace\SpanInterface as OtelSpanInterface;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\ContextKeyInterface;
+use OpenTelemetry\SDK\Trace\ReadableSpanInterface;
 use Spiral\Telemetry\SpanInterface;
 
 /**
@@ -59,14 +60,14 @@ final class ActiveTrace
 
     /**
      * The innermost thing the code runs in: a running trace, or else the OTel span innermost once the
-     * traces that have ended are left out. A context can outlive its trace when it is captured and
-     * activated later, or left attached by the trace's callback.
+     * traces that have ended are left out, and an ended OTel span activated right inside a trace. A context
+     * can outlive a trace or a span when it is captured and activated later, or left attached.
      */
     public static function innermostIn(ContextInterface $context): self|OtelSpanInterface
     {
         $active = OtelSpan::fromContext($context);
         for ($trace = self::fromContext($context); $trace !== null; $trace = $trace->parent) {
-            if ($active->getContext()->getSpanId() !== $trace->activeSpanId) {
+            if (!self::isOf($active, $trace)) {
                 break;
             }
             if (!$trace->ended) {
@@ -86,6 +87,17 @@ final class ActiveTrace
     public function end(): void
     {
         $this->ended = true;
+    }
+
+    /**
+     * Whether the span is the one active in the trace's own context, or an ended span activated right
+     * inside it. Only one level: the SDK keeps the id of a span's parent, not the parent.
+     */
+    private static function isOf(OtelSpanInterface $span, self $trace): bool
+    {
+        return $span->getContext()->getSpanId() === $trace->activeSpanId
+            || $span instanceof ReadableSpanInterface && $span->hasEnded()
+                && $span->getParentContext()->getSpanId() === $trace->activeSpanId;
     }
 
     private static function fromContext(ContextInterface $context): ?self

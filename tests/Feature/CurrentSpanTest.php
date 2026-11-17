@@ -325,6 +325,31 @@ final class CurrentSpanTest
     }
 
     /**
+     * As in a callback that outlives a `#[WithSpan]` method of the trace, alone or with a trace nested in it.
+     */
+    #[DataSet([false, false], 'not scoped')]
+    #[DataSet([true, false], 'scoped')]
+    #[DataSet([false, true], 'not scoped, nested trace')]
+    #[DataSet([true, true], 'scoped, nested trace')]
+    public function isTraceInContextOfEndedSpanActivatedInIt(bool $scoped, bool $nested): void
+    {
+        $this->tracer->trace('trace', function (SpanInterface $trace) use ($nested): void {
+            $context = null;
+            $this->inSpan('ended', function () use (&$context, $nested): void {
+                $context = $nested
+                    ? $this->tracer->trace('nested', static fn(): ContextInterface => Context::getCurrent())
+                    : Context::getCurrent();
+            });
+            $scope = $context->activate();
+            try {
+                Assert::same(CurrentSpan::get(), $trace);
+            } finally {
+                $scope->detach();
+            }
+        }, scoped: $scoped);
+    }
+
+    /**
      * With debug scopes off, as in production, a nested trace that leaves a scope attached ends without a
      * notice, and the context it leaves stays current for the rest of the outer trace.
      */
