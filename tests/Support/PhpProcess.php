@@ -19,18 +19,25 @@ final class PhpProcess
      * @param non-empty-string $script File name in `tests/Process`.
      * @param array<string, string> $env Added to the env of this process, which the child inherits.
      * @param list<string> $args
+     * @param array<string, string> $ini Passed with `-d`, for settings read at startup only.
      *
      * @return array{list<string>, string, int} Lines of stdout, stderr and the exit code.
      */
-    public static function run(string $script, array $env = [], array $args = []): array
+    public static function run(string $script, array $env = [], array $args = [], array $ini = []): array
     {
+        $options = [];
+        foreach ($ini as $name => $value) {
+            $options[] = '-d';
+            $options[] = "{$name}={$value}";
+        }
+
         # Files, not pipes: a child that fills the pipe nobody reads yet would block forever.
         $out = (string) \tempnam(\sys_get_temp_dir(), 'otel');
         $err = (string) \tempnam(\sys_get_temp_dir(), 'otel');
 
         try {
             $process = \proc_open(
-                [\PHP_BINARY, __DIR__ . '/../Process/' . $script, ...$args],
+                [\PHP_BINARY, ...$options, __DIR__ . '/../Process/' . $script, ...$args],
                 [0 => ['pipe', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']],
                 $pipes,
                 null,

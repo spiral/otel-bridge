@@ -9,11 +9,13 @@ use JMac\Testing\DoubleInterface;
 use JMac\Testing\Matching\Argument;
 use OpenTelemetry\API\Trace\Span;
 use OpenTelemetry\API\Trace\SpanBuilderInterface;
+use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\ContextKeys;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Container;
+use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Testo\Assert;
@@ -24,6 +26,7 @@ use Testo\Test;
 
 #[Test]
 #[Covers(Tracer::class)]
+#[Covers(SpanConverter::class)]
 final class TracerTest
 {
     private DoubleInterface&TracerInterface $otelTracer;
@@ -141,6 +144,7 @@ final class TracerTest
         $span->allows('storeInContext')->resolves(
             static fn(ContextInterface $context): ContextInterface => $context->with(ContextKeys::span(), $span),
         );
+        $span->allows('getContext')->returns(SpanContext::getInvalid());
         $activeSpan = null;
 
         $result = $this->tracer->trace(

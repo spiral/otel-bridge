@@ -19,6 +19,7 @@ use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
+use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributePriority;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeSize;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributeStatus;
@@ -44,6 +45,7 @@ use Testo\Test;
  */
 #[Test]
 #[Covers(Tracer::class)]
+#[Covers(SpanConverter::class)]
 final class TracerExportTest
 {
     private const TRACE_ID = '0af7651916cd43dd8448eb211c80319c';

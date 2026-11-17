@@ -10,13 +10,14 @@ use Spiral\OpenTelemetry\Tests\Acceptance\Support\Trap\SpanList;
 use Spiral\OpenTelemetry\Tests\Support\PhpProcess;
 use Testo\Assert;
 use Testo\Core\Exception\SkipTest;
+use Testo\Data\DataSet;
 use Testo\Test;
 
 /**
  * The app with ext-opentelemetry and the PSR-15 and PSR-18 auto-instrumentation, which only the CI job
- * with the extension installs; there `REQUIRE_EXT=1` makes their absence a failure. Each test serves one
- * request in a process of its own with `tests/Process/http-request.php`: hooks cannot be removed once
- * registered, and `Globals` is per process.
+ * with the extension installs; there `REQUIRE_EXT=1` makes their absence a failure. Each test runs a
+ * scenario of `tests/Process` in a process of its own: hooks cannot be removed once registered, and
+ * `Globals` is per process.
  */
 #[Test]
 final class AutoInstrumentationTest extends TestCase
@@ -79,6 +80,38 @@ final class AutoInstrumentationTest extends TestCase
         # Ended after the app terminated, with the provider the SDK shuts down only at exit.
         Assert::true($spans->named('after terminate')->export > $handler->export);
         Assert::string($response)->startsWith('00-' . self::TRACE_ID . '-');
+    }
+
+    /**
+     * Inside a `#[WithSpan]` method `CurrentSpan` is the span of the method, and after it the Spiral trace
+     * again, whether the trace is scoped or not.
+     */
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function currentSpanIsTheSpanOfWithSpanMethod(bool $scoped): void
+    {
+        if (!\extension_loaded('opentelemetry')) {
+            \getenv('REQUIRE_EXT') === '1'
+                ? Assert::fail('ext-opentelemetry is missing.')
+                : throw new SkipTest('ext-opentelemetry is not installed.');
+        }
+
+        [$stdout, $stderr, $code] = PhpProcess::run(
+            'with-span.php',
+            ['OTEL_PHP_TRACES_PROCESSOR' => 'simple', 'SCENARIO_SCOPED' => $scoped ? '1' : '0'],
+            ini: ['opentelemetry.attr_hooks_enabled' => '1'],
+        );
+
+        $spans = $this->traces()->settled();
+        Assert::same($stderr, '');
+        Assert::same($code, 0);
+        Assert::same($stdout, ['terminated']);
+        $handler = $spans->named('handler');
+        $annotated = $spans->named('annotated');
+        Assert::same($annotated->attributes['in'] ?? null, 'annotated', "Received:\n{$spans}");
+        Assert::same($handler->attributes['in'] ?? null, 'handler', "Received:\n{$spans}");
+        # A trace that is not scoped is never active, so with no scoped span around it the method's span is a root.
+        Assert::same($annotated->parentSpanId, $scoped ? $handler->spanId : null, "Received:\n{$spans}");
     }
 
     private static function assertTreeWithoutPsr15(SpanList $spans, string $response): void

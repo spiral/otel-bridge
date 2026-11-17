@@ -84,6 +84,28 @@ e.g. by `SIGKILL` or the RoadRunner stop timeout.
 
 The names, attributes and status of the spans of Spiral components, like the SERVER span of a request and its HTTP attributes, are set by those components, `spiral/http` among them; the bridge exports them as they are.
 
+### Current span
+
+Code that has no span passed to it gets the innermost span it runs in with `CurrentSpan::get()`:
+
+```php
+use Spiral\OpenTelemetry\CurrentSpan;
+
+CurrentSpan::get()->setAttribute('dict.org_types.count', \count($types));
+```
+
+- Inside a trace of the `otel` driver, scoped or not, it is the same Spiral span the traced callback gets. With the `log` and `null` drivers there is no such trace.
+- Inside an OpenTelemetry span activated within the trace, as the span of a [`#[WithSpan]`](#withspan) method or of a hook, it is that span; once the span is detached, as when the method returns, it is the trace's again.
+- Outside a running trace and an active span, it is a span that drops everything.
+
+Values set on it are converted as for the span of a trace. On an OpenTelemetry span they are written at once, as the SDK has it: the getters give the converted values, `setAttributes()` adds to the attributes rather than replacing them, an `Ok` status is final, and a status that converts to `Unset` is ignored.
+
+A span that OpenTelemetry does not record drops the values. Besides a span not sampled, that is the case in a span suppressed inside an OpenTelemetry span the trace activated, and in a remote context activated inside a trace. A span suppressed right inside the trace, like that of the psr15 hook on a middleware, is taken for the trace. A context that outlives its trace or span, captured and activated again later or left attached, gives what is innermost around the ended ones: the trace they are nested in, an OpenTelemetry span still running, or else the span that drops everything. Of ended OpenTelemetry spans, only a child of the span active in the trace, as that of a `#[WithSpan]` method right inside it, is seen through, as the SDK keeps the id of a span's parent, not the parent. It is told by that id alone, so an ended span given the same parent by hand is seen through too, and in a trace with no span around it, so is an ended root span.
+
+For events, exceptions recorded by hand, links and the trace id, use `OpenTelemetry\API\Trace\Span::getCurrent()`: it gives the active OpenTelemetry span, which is a Spiral trace only when it is scoped.
+
+The span is found in the OpenTelemetry context. A fiber has a context of its own once it activates one, or when `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning, which the error handler of a Spiral app turns into an exception.
+
 ### Span status
 
 A status set on a Spiral span is exported as the OpenTelemetry span status:
@@ -174,6 +196,24 @@ With `OTEL_PHP_AUTOLOAD_ENABLED=true` the provider comes from the SDK, so the br
 A span left active when a request or job ends would become the parent of every later span of the worker and hide the incoming trace context; the bridge writes a warning to the SDK log when it sees one.
 
 Spans of hooks nest under the active span. A Spiral trace that is not `scoped`, like `Routing` or `Job push`, is never active, so database or HTTP client spans made inside it hang on the enclosing scoped span.
+
+### WithSpan
+
+With `opentelemetry.attr_hooks_enabled=1` in `php.ini`, the extension traces a function or method marked with `#[OpenTelemetry\API\Instrumentation\WithSpan]`. Its span nests like the spans of hooks, and inside the method [`CurrentSpan::get()`](#current-span) gives it:
+
+```php
+use OpenTelemetry\API\Instrumentation\WithSpan;
+use Spiral\OpenTelemetry\CurrentSpan;
+
+#[WithSpan('dict.load')]
+public function load(): array
+{
+    $types = $this->fetchTypes();
+    CurrentSpan::get()->setAttribute('dict.org_types.count', \count($types));
+
+    return $types;
+}
+```
 
 ## Upgrading to 2.0
 
