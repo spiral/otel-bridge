@@ -182,8 +182,10 @@ final class CurrentSpanTest
     public function activeSpanStatusIsConvertedByKind(int $kind, int|string $code, ?string $expected): void
     {
         $this->inSpan('test', static function () use ($code, $expected): void {
-            $status = CurrentSpan::get()->setStatus($code, 'reason')->getStatus();
+            $span = CurrentSpan::get();
+            $status = $span->setStatus($code, 'reason')->getStatus();
 
+            Assert::instanceOf($span, OtelSpanAdapter::class);
             Assert::same($status?->code, $expected);
             Assert::same($status?->description, $expected === StatusCode::STATUS_ERROR ? 'reason' : null);
         }, $kind);
@@ -196,7 +198,7 @@ final class CurrentSpanTest
         $this->tracer->trace('trace', static function (): void {
             $unsampled = SpanContext::create('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331');
             $scope = OtelSpan::wrap($unsampled)->activate();
-            CurrentSpan::get()->setAttribute('in', 'unsampled');
+            Assert::instanceOf(CurrentSpan::get()->setAttribute('in', 'unsampled'), NoopSpan::class);
             $scope->detach();
         }, scoped: $scoped);
 
@@ -301,6 +303,51 @@ final class CurrentSpanTest
         } finally {
             $scope->detach();
         }
+    }
+
+    #[DataSet([false, false], 'neither scoped')]
+    #[DataSet([false, true], 'nested scoped')]
+    #[DataSet([true, false], 'outer scoped')]
+    #[DataSet([true, true], 'both scoped')]
+    public function isOuterTraceInContextOfEndedNestedTrace(bool $outerScoped, bool $nestedScoped): void
+    {
+        $this->tracer->trace('outer', function (SpanInterface $outer) use ($nestedScoped): void {
+            $context = $this->tracer->trace('nested', static fn(): ContextInterface => Context::getCurrent(), scoped: $nestedScoped);
+            $scope = $context->activate();
+            # The Spiral span, not an OTel span of the outer trace, which the trace's end would overwrite.
+            Assert::same(CurrentSpan::get(), $outer);
+            CurrentSpan::get()->setAttribute('in', 'outer');
+            $scope->detach();
+        }, scoped: $outerScoped);
+
+        Assert::same($this->span('outer')->getAttributes()->toArray(), ['in' => 'outer']);
+        Assert::same($this->span('nested')->getAttributes()->toArray(), []);
+    }
+
+    /**
+     * With debug scopes off, as in production, a nested trace that leaves a scope attached ends without a
+     * notice, and the context it leaves stays current for the rest of the outer trace.
+     */
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function isOuterTraceAfterNestedTraceLeftScopeAttached(bool $scoped): void
+    {
+        $assertions = (string) \ini_get('zend.assertions');
+        \ini_set('zend.assertions', '0');
+        $leaked = null;
+        try {
+            $this->tracer->trace('outer', function () use (&$leaked, $scoped): void {
+                $this->tracer->trace('nested', static function () use (&$leaked): void {
+                    $leaked = Context::getCurrent()->activate();
+                }, scoped: $scoped);
+                CurrentSpan::get()->setAttribute('in', 'outer');
+            }, scoped: $scoped);
+        } finally {
+            $leaked?->detach();
+            \ini_set('zend.assertions', $assertions);
+        }
+
+        Assert::same($this->span('outer')->getAttributes()->toArray(), ['in' => 'outer']);
     }
 
     /**

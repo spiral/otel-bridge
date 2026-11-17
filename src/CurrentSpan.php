@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Spiral\OpenTelemetry;
 
-use OpenTelemetry\API\Trace\Span as OtelSpan;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\SDK\Trace\ReadWriteSpanInterface;
 use Spiral\OpenTelemetry\Span\ActiveTrace;
@@ -30,16 +29,12 @@ final class CurrentSpan
 
     public static function get(): SpanInterface
     {
-        $context = Context::getCurrent();
-        $trace = ActiveTrace::fromContext($context);
-        if ($trace?->isInnermostIn($context)) {
-            return $trace->span;
-        }
+        $innermost = ActiveTrace::innermostIn(Context::getCurrent());
 
-        $active = OtelSpan::fromContext($context);
-
-        return $active instanceof ReadWriteSpanInterface && !$active->hasEnded()
-            ? new OtelSpanAdapter($active)
-            : NoopSpan::instance();
+        return match (true) {
+            $innermost instanceof ActiveTrace => $innermost->span,
+            $innermost instanceof ReadWriteSpanInterface && !$innermost->hasEnded() => new OtelSpanAdapter($innermost),
+            default => NoopSpan::instance(),
+        };
     }
 }

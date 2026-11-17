@@ -63,7 +63,7 @@ final class Tracer extends AbstractTracer
         ?TraceKind $traceKind = null,
         ?int $startTime = null,
     ): mixed {
-        $current = Context::getCurrent();
+        $current = $outer = Context::getCurrent();
         # An explicit parent overrides the active span, so the remote one is set only for a span with no
         # local parent; otherwise every span of the request would hang off it directly.
         $remote = $this->context !== [] && !OtelSpan::fromContext($current)->getContext()->isValid();
@@ -78,7 +78,7 @@ final class Tracer extends AbstractTracer
             $current = $traceSpan->storeInContext($current);
         }
         # Activated for a trace that is not scoped as well, for CurrentSpan: the OTel span stays out of it.
-        $active = ActiveTrace::start($internalSpan, $current);
+        $active = ActiveTrace::start($internalSpan, $outer, $current);
         $scope = $active->storeInContext($current)->activate();
 
         $this->running[] = [$traceSpan, $scoped];
