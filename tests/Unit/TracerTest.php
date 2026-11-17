@@ -9,6 +9,7 @@ use JMac\Testing\DoubleInterface;
 use JMac\Testing\Matching\Argument;
 use OpenTelemetry\API\Trace\Span;
 use OpenTelemetry\API\Trace\SpanBuilderInterface;
+use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\ContextKeys;
@@ -143,6 +144,7 @@ final class TracerTest
         $span->allows('storeInContext')->resolves(
             static fn(ContextInterface $context): ContextInterface => $context->with(ContextKeys::span(), $span),
         );
+        $span->allows('getContext')->returns(SpanContext::getInvalid());
         $activeSpan = null;
 
         $result = $this->tracer->trace(

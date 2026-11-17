@@ -94,15 +94,15 @@ use Spiral\OpenTelemetry\CurrentSpan;
 CurrentSpan::get()->setAttribute('dict.org_types.count', \count($types));
 ```
 
-- Inside a trace, scoped or not, it is the same Spiral span the traced callback gets.
+- Inside a trace of the `otel` driver, scoped or not, it is the same Spiral span the traced callback gets. With the `log` and `null` drivers there is no such trace.
 - Inside an OpenTelemetry span activated within the trace, as the span of a [`#[WithSpan]`](#withspan) method or of a hook, it is that span; once the span is detached, as when the method returns, it is the trace's again.
-- Outside a trace and an active span, it is a span that drops everything.
+- Outside a running trace and an active span, it is a span that drops everything.
 
-Values set on it are converted as for the span of a trace. A span that OpenTelemetry does not record, like one not sampled, drops them too.
+Values set on it are converted as for the span of a trace. On an OpenTelemetry span they are written at once, so its getters give the converted values, and an `Ok` status is final, as the SDK has it. A span that OpenTelemetry does not record, like one not sampled, drops them.
 
 For events, exceptions recorded by hand, links and the trace id, use `OpenTelemetry\API\Trace\Span::getCurrent()`: it gives the active OpenTelemetry span, which is a Spiral trace only when it is scoped.
 
-The span is kept in the OpenTelemetry context. A fiber has a context of its own once it activates one, or when `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI; until then, OpenTelemetry warns and falls back to the context of the main thread.
+The span is found in the OpenTelemetry context. A fiber has a context of its own once it activates one, or when `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning, which the error handler of a Spiral app turns into an exception.
 
 ### Span status
 

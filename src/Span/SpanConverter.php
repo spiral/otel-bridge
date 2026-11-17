@@ -198,8 +198,8 @@ final class SpanConverter
     }
 
     /**
-     * Run __toString() or jsonSerialize() of a value, which becomes its type when they throw: attributes are
-     * set after the traced callback has succeeded, and must not make trace() fail.
+     * Run __toString() or jsonSerialize() of a value, which becomes its type when they throw: setting an
+     * attribute must not make trace() fail after the callback has succeeded, nor throw from a span setter.
      *
      * @template T
      *

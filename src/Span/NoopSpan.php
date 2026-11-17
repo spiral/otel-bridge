@@ -10,6 +10,8 @@ use Spiral\Telemetry\SpanInterface;
 /**
  * The span {@see \Spiral\OpenTelemetry\CurrentSpan} gives outside a trace: it keeps nothing, so code
  * that may run with or without a trace sets attributes unconditionally.
+ *
+ * @internal
  */
 final class NoopSpan implements SpanInterface
 {

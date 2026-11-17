@@ -10,16 +10,17 @@ use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\Context\Context;
+use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\CurrentSpan;
-use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributePriority;
 use Spiral\OpenTelemetry\Span\NoopSpan;
 use Spiral\OpenTelemetry\Span\OtelSpanAdapter;
 use Spiral\OpenTelemetry\Span\SpanConverter;
+use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributePriority;
 use Spiral\OpenTelemetry\Tracer;
 use Spiral\Telemetry\SpanInterface;
 use Testo\Assert;
@@ -211,6 +212,64 @@ final class CurrentSpanTest
         }
     }
 
+    /**
+     * A suppressed span, as of the psr15 hook on a middleware Spiral traces, is a non-recording wrapper of
+     * the active span's context.
+     */
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function isTraceInsideSuppressedSpan(bool $scoped): void
+    {
+        $this->tracer->trace('trace', static function (): void {
+            $scope = OtelSpan::wrap(OtelSpan::getCurrent()->getContext())->activate();
+            CurrentSpan::get()->setAttribute('in', 'suppressed');
+            $scope->detach();
+        }, scoped: $scoped);
+
+        Assert::same($this->span('trace')->getAttributes()->toArray(), ['in' => 'suppressed']);
+    }
+
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function isNoopInContextActivatedAfterTraceEnded(bool $scoped): void
+    {
+        $context = $this->tracer->trace('trace', static fn(): ContextInterface => Context::getCurrent(), scoped: $scoped);
+        $scope = $context->activate();
+
+        try {
+            Assert::instanceOf(CurrentSpan::get(), NoopSpan::class);
+        } finally {
+            $scope->detach();
+        }
+    }
+
+    /**
+     * With debug scopes on, detaching the trace's scope under a scope the callback left attached raises a
+     * notice, which the error handler of a Spiral app turns into an exception.
+     */
+    public function traceLeavingScopeAttachedEndsAllTheSame(): void
+    {
+        $leaked = null;
+        \set_error_handler(static fn(int $code, string $message): never => throw new \ErrorException($message, 0, $code));
+        try {
+            $this->tracer->trace('leaking', static function () use (&$leaked): void {
+                $leaked = Context::getCurrent()->activate();
+            });
+        } catch (\ErrorException) {
+        } finally {
+            \restore_error_handler();
+        }
+
+        try {
+            Assert::instanceOf(CurrentSpan::get(), NoopSpan::class);
+            $this->tracer->trace('next', static fn() => null);
+            Assert::string($this->tracer->getContext()['traceparent'] ?? '')
+                ->contains($this->span('next')->getTraceId());
+        } finally {
+            $leaked?->detach();
+        }
+    }
+
     private function span(string $name): SpanDataInterface
     {
         foreach ($this->exporter->getSpans() as $span) {
@@ -221,6 +280,7 @@ final class CurrentSpanTest
 
         throw new \LogicException("No span named {$name} was exported.");
     }
+
     /**
      * Runs the callback in an OTel span started and activated by hand, as `#[WithSpan]` does.
      */

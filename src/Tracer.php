@@ -15,6 +15,7 @@ use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Attribute\Proxy;
 use Spiral\Core\ScopeInterface;
 use Spiral\OpenTelemetry\Propagation\TracestateGetter;
+use Spiral\OpenTelemetry\Span\ActiveTrace;
 use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\Telemetry\AbstractTracer;
 use Spiral\Telemetry\Span;
@@ -77,7 +78,8 @@ final class Tracer extends AbstractTracer
             $current = $traceSpan->storeInContext($current);
         }
         # Activated for a trace that is not scoped as well, for CurrentSpan: the OTel span stays out of it.
-        $scope = CurrentSpan::storeInContext($internalSpan, $current)->activate();
+        $active = ActiveTrace::start($internalSpan, $current);
+        $scope = $active->storeInContext($current)->activate();
 
         $this->running[] = [$traceSpan, $scoped];
         $error = null;
@@ -91,8 +93,13 @@ final class Tracer extends AbstractTracer
                 self::copySpan($internalSpan, $traceSpan, $traceKind, $error);
             } finally {
                 $traceSpan->end();
-                $scope->detach();
-                $this->leave($traceSpan);
+                $active->end();
+                try {
+                    # Throws in a Spiral app when the callback left a scope attached and debug scopes are on.
+                    $scope->detach();
+                } finally {
+                    $this->leave($traceSpan);
+                }
             }
         }
     }
@@ -100,7 +107,7 @@ final class Tracer extends AbstractTracer
     /**
      * The headers that continue the trace where the code runs. The innermost running trace of this tracer
      * decides: when it is scoped, the span active in the context, which may be a span created inside it by
-     * other instrumentation; otherwise the trace itself, as it is never activated. With no trace running,
+     * other instrumentation; otherwise the trace itself, as its span is never activated. With no trace running,
      * the last finished outermost one, then the incoming context.
      */
     #[\Override]
