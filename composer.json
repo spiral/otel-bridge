@@ -54,6 +54,7 @@
         "roxblnfk/unpoly": "^1.8",
         "spiral/dumper": "^3.3",
         "spiral/http": "^3.19",
+        "spiral/queue": "^3.19",
         "spiral/testing": "4.x-dev as 4.0.0",
         "symfony/http-client": "^6.4 || ^7.0 || ^8.0",
         "testo/bridge-double": "^0.1.1",

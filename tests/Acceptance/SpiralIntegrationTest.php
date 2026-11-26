@@ -107,16 +107,17 @@ final class SpiralIntegrationTest extends TestCase
     }
 
     /**
-     * The job continues its push span, which runs under the `HTTP Pipeline`.
+     * The sync driver runs the job inside the scoped push span, so the job nests under `Job push`, which
+     * runs in the `HTTP Pipeline`.
      */
-    public function jobPushedByRequestHandlerContinuesPushSpan(): void
+    public function jobPushedByRequestHandlerContinuesSpanRunningAtPush(): void
     {
         $this->fakeHttp()->post('/orders', ['to' => 'carol@example.com'])->assertStatus(201);
 
         $spans = $this->traces()->await(6);
         $push = $spans->named(self::PUSH_SPAN);
-        Assert::same($spans->named(self::JOB_SPAN)->parentSpanId, $push->spanId);
         Assert::same($push->parentSpanId, $spans->named(self::PIPELINE_SPAN)->spanId);
+        Assert::same($spans->named(self::JOB_SPAN)->parentSpanId, $push->spanId);
     }
 
     public function consecutiveRequestsArriveAsIndependentTraces(): void
@@ -217,10 +218,10 @@ final class SpiralIntegrationTest extends TestCase
     }
 
     /**
-     * As the messaging conventions have it (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/),
-     * the push span is a PRODUCER span and the job continues it; a span the job handler starts nests under
-     * the CONSUMER span. The sync driver runs the job while the push span is still active, so it is the
-     * job's local parent rather than a remote one from the job headers.
+     * The push span is the PRODUCER the job's CONSUMER span continues, as the messaging conventions have it
+     * (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/). The sync driver runs the job
+     * inside the scoped push span, so `Job push` is its local parent; a span the job handler starts nests
+     * under the CONSUMER span.
      */
     public function pushedJobContinuesTraceOfPushingSpan(): void
     {
