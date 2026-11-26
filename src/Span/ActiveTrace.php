@@ -14,7 +14,7 @@ use Spiral\Telemetry\SpanInterface;
 
 /**
  * A trace of {@see \Spiral\OpenTelemetry\Tracer}, kept in the OTel context for
- * {@see \Spiral\OpenTelemetry\CurrentSpan}.
+ * {@see OtelCurrentSpanProvider}.
  *
  * Spans are told apart by id rather than by object, as a suppressed span is a new non-recording wrapper of
  * its parent's span context; for the same reason only a wrapper of a span a trace knows is recognized, not

@@ -21,7 +21,6 @@ use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
-use Spiral\OpenTelemetry\CurrentSpan as BridgeCurrentSpan;
 use Spiral\OpenTelemetry\Span\ActiveTrace;
 use Spiral\OpenTelemetry\Span\OtelCurrentSpanProvider;
 use Spiral\OpenTelemetry\Span\OtelSpanAdapter;
@@ -39,7 +38,6 @@ use Testo\Lifecycle\BeforeTest;
 use Testo\Test;
 
 #[Test]
-#[Covers(BridgeCurrentSpan::class)]
 #[Covers(OtelCurrentSpanProvider::class)]
 #[Covers(ActiveTrace::class)]
 #[Covers(OtelSpanAdapter::class)]
@@ -98,15 +96,6 @@ final class CurrentSpanTest
 
         Assert::same($this->span('inner')->getAttributes()->toArray(), ['in' => 'inner']);
         Assert::same($this->span('outer')->getAttributes()->toArray(), ['in' => 'outer']);
-    }
-
-    public function bridgeFacadeGivesTheSameSpan(): void
-    {
-        $this->tracer->trace('test', static function (SpanInterface $span): void {
-            Assert::same(BridgeCurrentSpan::get(), $span);
-        });
-        $this->inSpan('outer', static fn() => Assert::instanceOf(BridgeCurrentSpan::get(), OtelSpanAdapter::class));
-        Assert::instanceOf(BridgeCurrentSpan::get(), NoopSpan::class);
     }
 
     public function isRestoredWhenTraceThrows(): void

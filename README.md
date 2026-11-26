@@ -107,8 +107,6 @@ For events, exceptions recorded by hand, links and the trace id, use `OpenTeleme
 
 The span is found in the OpenTelemetry context, which is kept per fiber. The callback of a trace sees the context of the trace in whatever fiber spiral/telemetry runs it. A fiber started inside a trace gets the trace from spiral/telemetry, but has no OpenTelemetry context until it activates one, or `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning, which the error handler of a Spiral app turns into an exception, and `CurrentSpan::get()` gives the span of the trace.
 
-`Spiral\OpenTelemetry\CurrentSpan` is deprecated: it gives what `Spiral\Telemetry\CurrentSpan` does.
-
 ### Span status
 
 A status set on a Spiral span is exported as the OpenTelemetry span status:

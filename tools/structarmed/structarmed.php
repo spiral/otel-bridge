@@ -11,7 +11,6 @@ return Architecture::define()
     ->layer('Trace', 'src/Trace')
     ->layer('Propagation', 'src/Propagation')
     ->layer('Span', 'src/Span')
-    ->layer('CurrentSpan', 'src/CurrentSpan.php')
     ->layer('Tracer', 'src/Tracer.php')
     ->layer('TracerFactory', 'src/TracerFactory.php')
     ->layer('Bootloader', 'src/Bootloader')
@@ -20,7 +19,6 @@ return Architecture::define()
         'Trace'         => [],
         'Propagation'   => [],
         'Span'          => [],
-        'CurrentSpan'   => [],
         'Tracer'        => ['Propagation', 'Span'],
         'TracerFactory' => ['+Tracer'],
         'Bootloader'    => ['Clock', 'Trace', 'Span', '+TracerFactory'],
