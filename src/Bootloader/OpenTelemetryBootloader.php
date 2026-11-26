@@ -164,8 +164,8 @@ final class OpenTelemetryBootloader extends Bootloader
             return new NoopTracerProvider();
         }
 
+        /** @var SpanProcessorInterface $spanProcessor */
         $spanProcessor = $container->get(SpanProcessorInterface::class);
-        \assert($spanProcessor instanceof SpanProcessorInterface);
 
         try {
             $sampler = (new SamplerFactory())->create();

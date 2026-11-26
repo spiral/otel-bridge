@@ -56,8 +56,8 @@ final class TracerProviderFinalizer
     private function report(\Throwable $e): void
     {
         try {
+            /** @var ExceptionReporterInterface $reporter */
             $reporter = $this->container->get(ExceptionReporterInterface::class);
-            \assert($reporter instanceof ExceptionReporterInterface);
             $reporter->report($e);
         } catch (\Throwable $reporterError) {
             self::logError(
