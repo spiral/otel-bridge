@@ -15,8 +15,8 @@ use Spiral\Boot\Bootloader\ConfigurationBootloader;
 use Spiral\Boot\Environment;
 use Spiral\Boot\FinalizerInterface;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
-use Spiral\OpenTelemetry\CurrentSpan;
 use Spiral\Core\Scope;
+use Spiral\Telemetry\CurrentSpan;
 use Spiral\Telemetry\TracerInterface;
 use Spiral\Testing\TestApp;
 

@@ -36,6 +36,7 @@ use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\FinalizerInterface;
 use Spiral\OpenTelemetry\InstrumentationScope;
 use Spiral\OpenTelemetry\Propagation\LateBindingPropagator;
+use Spiral\OpenTelemetry\Span\OtelCurrentSpanProvider;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\ContextFinalizer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
@@ -45,6 +46,7 @@ use Spiral\OpenTelemetry\Trace\UnsampledContext;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
 use Spiral\Telemetry\ClockInterface;
+use Spiral\Telemetry\CurrentSpan;
 
 final class OpenTelemetryBootloader extends Bootloader
 {
@@ -74,6 +76,13 @@ final class OpenTelemetryBootloader extends Bootloader
         FinalizerInterface $finalizer,
     ): void {
         $telemetry->registerTracer('otel', TracerFactory::class);
+
+        # Outside a Spiral trace, as in a console command with a `#[WithSpan]` method, only the OTel context
+        # knows the span; unset at terminate, so it does not outlive the app in a process that runs another.
+        CurrentSpan::setProvider(new OtelCurrentSpanProvider());
+        $finalizer->addFinalizer(static function (bool $terminate): void {
+            $terminate and CurrentSpan::setProvider(null);
+        });
 
         if (self::autoloadedProvider(report: true) !== null) {
             # Built now, so its flush is registered even if only hooks ever create spans.

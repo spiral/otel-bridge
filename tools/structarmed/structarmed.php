@@ -20,8 +20,8 @@ return Architecture::define()
         'Trace'         => [],
         'Propagation'   => [],
         'Span'          => [],
-        'CurrentSpan'   => ['Span'],
+        'CurrentSpan'   => [],
         'Tracer'        => ['Propagation', 'Span'],
         'TracerFactory' => ['+Tracer'],
-        'Bootloader'    => ['Clock', 'Trace', '+TracerFactory'],
+        'Bootloader'    => ['Clock', 'Trace', 'Span', '+TracerFactory'],
     ]);

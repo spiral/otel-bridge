@@ -13,16 +13,19 @@ use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\ContextInterface;
 use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Spiral\Core\Attribute\Proxy;
+use Spiral\Core\InvokerInterface;
 use Spiral\Core\ScopeInterface;
 use Spiral\OpenTelemetry\Propagation\TracestateGetter;
 use Spiral\OpenTelemetry\Span\ActiveTrace;
+use Spiral\OpenTelemetry\Span\OtelCurrentSpanProvider;
 use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\Telemetry\AbstractTracer;
+use Spiral\Telemetry\CurrentSpanProviderInterface;
 use Spiral\Telemetry\Span;
 use Spiral\Telemetry\SpanInterface;
 use Spiral\Telemetry\TraceKind;
 
-final class Tracer extends AbstractTracer
+final class Tracer extends AbstractTracer implements CurrentSpanProviderInterface
 {
     /**
      * The traces of this tracer that are running, innermost last, with whether each is scoped. Only
@@ -79,12 +82,22 @@ final class Tracer extends AbstractTracer
         }
         # Activated for a trace that is not scoped as well, for CurrentSpan: the OTel span stays out of it.
         $active = ActiveTrace::start($internalSpan, $outer, $current);
-        $scope = $active->storeInContext($current)->activate();
+        $own = $active->storeInContext($current);
+        $scope = $own->activate();
 
         $this->running[] = [$traceSpan, $scoped];
         $error = null;
         try {
-            return $this->runScope($internalSpan, $callback);
+            # Inside a fiber, runScope() runs the callback in a fiber of its own, which has no OTel context,
+            # as OTel keeps one per fiber; through the invoker, so the callback still gets its arguments.
+            return $this->runScope($internalSpan, static function (InvokerInterface $invoker) use ($own, $callback): mixed {
+                $scope = $own->activate();
+                try {
+                    return $invoker->invoke($callback);
+                } finally {
+                    $scope->detach();
+                }
+            });
         } catch (\Throwable $e) {
             $traceSpan->recordException($e);
             throw $error = $e;
@@ -145,6 +158,16 @@ final class Tracer extends AbstractTracer
 
         /** @var array<non-empty-string, string> $carrier The default setter fills the array by reference */
         return $carrier;
+    }
+
+    /**
+     * Asked by {@see \Spiral\Telemetry\CurrentSpan} while a trace of this tracer is the innermost Spiral
+     * trace: a span activated inside it, like that of `#[WithSpan]`, may be more inner still.
+     */
+    #[\Override]
+    public function getCurrentSpan(): SpanInterface
+    {
+        return (new OtelCurrentSpanProvider())->getCurrentSpan();
     }
 
     /**

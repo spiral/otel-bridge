@@ -86,16 +86,17 @@ The names, attributes and status of the spans of Spiral components, like the SER
 
 ### Current span
 
-Code that has no span passed to it gets the innermost span it runs in with `CurrentSpan::get()`:
+Code that has no span passed to it gets the innermost span it runs in with `CurrentSpan::get()` of spiral/telemetry. The bridge tells it the spans that only OpenTelemetry knows of:
 
 ```php
-use Spiral\OpenTelemetry\CurrentSpan;
+use Spiral\Telemetry\CurrentSpan;
 
 CurrentSpan::get()->setAttribute('dict.org_types.count', \count($types));
 ```
 
-- Inside a trace of the `otel` driver, scoped or not, it is the same Spiral span the traced callback gets. With the `log` and `null` drivers there is no such trace.
+- Inside a trace, scoped or not, it is the same Spiral span the traced callback gets.
 - Inside an OpenTelemetry span activated within the trace, as the span of a [`#[WithSpan]`](#withspan) method or of a hook, it is that span; once the span is detached, as when the method returns, it is the trace's again.
+- Outside a Spiral trace, as in a console command calling a `#[WithSpan]` method, it is the active OpenTelemetry span: the bridge sets itself as the provider of `CurrentSpan` when the app boots.
 - Outside a running trace and an active span, it is a span that drops everything.
 
 Values set on it are converted as for the span of a trace. On an OpenTelemetry span they are written at once, as the SDK has it: the getters give the converted values, `setAttributes()` adds to the attributes rather than replacing them, an `Ok` status is final, and a status that converts to `Unset` is ignored.
@@ -104,7 +105,9 @@ A span that OpenTelemetry does not record drops the values. Besides a span not s
 
 For events, exceptions recorded by hand, links and the trace id, use `OpenTelemetry\API\Trace\Span::getCurrent()`: it gives the active OpenTelemetry span, which is a Spiral trace only when it is scoped.
 
-The span is found in the OpenTelemetry context. A fiber has a context of its own once it activates one, or when `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning, which the error handler of a Spiral app turns into an exception.
+The span is found in the OpenTelemetry context, which is kept per fiber. The callback of a trace sees the context of the trace in whatever fiber spiral/telemetry runs it. A fiber started inside a trace gets the trace from spiral/telemetry, but has no OpenTelemetry context until it activates one, or `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning, which the error handler of a Spiral app turns into an exception, and `CurrentSpan::get()` gives the span of the trace.
+
+`Spiral\OpenTelemetry\CurrentSpan` is deprecated: it gives what `Spiral\Telemetry\CurrentSpan` does.
 
 ### Span status
 
@@ -145,7 +148,7 @@ With `OTEL_PHP_AUTOLOAD_ENABLED=true` the provider comes from the SDK, so the br
 
 A span left active when a request or job ends would become the parent of every later span of the worker and hide the incoming trace context; the bridge writes a warning to the SDK log when it sees one.
 
-Spans of hooks nest under the active span. A Spiral trace that is not `scoped`, like `Routing` or `Job push`, is never active, so database or HTTP client spans made inside it hang on the enclosing scoped span.
+Spans of hooks nest under the active span. A Spiral trace that is not `scoped`, like `Routing`, is never active, so database or HTTP client spans made inside it hang on the enclosing scoped span.
 
 ### WithSpan
 
@@ -153,7 +156,7 @@ With `opentelemetry.attr_hooks_enabled=1` in `php.ini`, the extension traces a f
 
 ```php
 use OpenTelemetry\API\Instrumentation\WithSpan;
-use Spiral\OpenTelemetry\CurrentSpan;
+use Spiral\Telemetry\CurrentSpan;
 
 #[WithSpan('dict.load')]
 public function load(): array

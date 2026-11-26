@@ -21,24 +21,27 @@ use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\SpanProcessorInterface;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use Spiral\Core\Container;
-use Spiral\OpenTelemetry\CurrentSpan;
+use Spiral\OpenTelemetry\CurrentSpan as BridgeCurrentSpan;
 use Spiral\OpenTelemetry\Span\ActiveTrace;
-use Spiral\OpenTelemetry\Span\NoopSpan;
+use Spiral\OpenTelemetry\Span\OtelCurrentSpanProvider;
 use Spiral\OpenTelemetry\Span\OtelSpanAdapter;
 use Spiral\OpenTelemetry\Span\SpanConverter;
 use Spiral\OpenTelemetry\Tests\Feature\Fixture\AttributePriority;
 use Spiral\OpenTelemetry\Tracer;
+use Spiral\Telemetry\CurrentSpan;
+use Spiral\Telemetry\Span\NoopSpan;
 use Spiral\Telemetry\SpanInterface;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
+use Testo\Lifecycle\AfterTest;
 use Testo\Lifecycle\BeforeTest;
 use Testo\Test;
 
 #[Test]
-#[Covers(CurrentSpan::class)]
+#[Covers(BridgeCurrentSpan::class)]
+#[Covers(OtelCurrentSpanProvider::class)]
 #[Covers(ActiveTrace::class)]
-#[Covers(NoopSpan::class)]
 #[Covers(OtelSpanAdapter::class)]
 #[Covers(SpanConverter::class)]
 #[Covers(Tracer::class)]
@@ -57,6 +60,14 @@ final class CurrentSpanTest
             ($this->provider = new TracerProvider(new SimpleSpanProcessor($this->exporter)))->getTracer('test'),
             TraceContextPropagator::getInstance(),
         );
+        # As the bootloader does: outside a Spiral trace, only the provider knows the span.
+        CurrentSpan::setProvider(new OtelCurrentSpanProvider());
+    }
+
+    #[AfterTest]
+    public function unsetProvider(): void
+    {
+        CurrentSpan::setProvider(null);
     }
 
     #[DataSet([false], 'not scoped')]
@@ -87,6 +98,15 @@ final class CurrentSpanTest
 
         Assert::same($this->span('inner')->getAttributes()->toArray(), ['in' => 'inner']);
         Assert::same($this->span('outer')->getAttributes()->toArray(), ['in' => 'outer']);
+    }
+
+    public function bridgeFacadeGivesTheSameSpan(): void
+    {
+        $this->tracer->trace('test', static function (SpanInterface $span): void {
+            Assert::same(BridgeCurrentSpan::get(), $span);
+        });
+        $this->inSpan('outer', static fn() => Assert::instanceOf(BridgeCurrentSpan::get(), OtelSpanAdapter::class));
+        Assert::instanceOf(BridgeCurrentSpan::get(), NoopSpan::class);
     }
 
     public function isRestoredWhenTraceThrows(): void
@@ -138,6 +158,51 @@ final class CurrentSpanTest
 
         Assert::same($this->span('fiber')->getAttributes()->toArray(), ['in' => 'fiber']);
         Assert::same($this->span('main')->getAttributes()->toArray(), ['in' => 'main']);
+    }
+
+    /**
+     * The framework hands the trace to a fiber started inside it, but OTel does not hand the context.
+     */
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function fiberStartedInsideTraceWithContextAttachedSeesTheTrace(bool $scoped): void
+    {
+        $this->tracer->trace('trace', static function (SpanInterface $trace): void {
+            $context = Context::getCurrent();
+            $fiber = new \Fiber(static function () use ($context, $trace): void {
+                $scope = $context->activate();
+                try {
+                    Assert::same(CurrentSpan::get(), $trace);
+                    \Fiber::suspend();
+                    Assert::same(CurrentSpan::get(), $trace);
+                    CurrentSpan::get()->setAttribute('in', 'fiber');
+                } finally {
+                    $scope->detach();
+                }
+            });
+            $fiber->start();
+            Assert::same(CurrentSpan::get(), $trace);
+            $fiber->resume();
+        }, scoped: $scoped);
+
+        Assert::same($this->span('trace')->getAttributes()->toArray(), ['in' => 'fiber']);
+    }
+
+    /**
+     * Without the context attached, reading it in the fiber raises an OTel warning, which the framework
+     * takes for no answer from the tracer: the span of the trace it handed to the fiber.
+     */
+    public function fiberStartedInsideTraceWithoutContextSeesTheTrace(): void
+    {
+        \set_error_handler(static fn(int $code, string $message): never => throw new \ErrorException($message, 0, $code));
+        try {
+            $this->tracer->trace('trace', static function (SpanInterface $trace): void {
+                $fiber = new \Fiber(static fn() => Assert::same(CurrentSpan::get(), $trace));
+                $fiber->start();
+            });
+        } finally {
+            \restore_error_handler();
+        }
     }
 
     #[DataSet([false], 'not scoped')]
