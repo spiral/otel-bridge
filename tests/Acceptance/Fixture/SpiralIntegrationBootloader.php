@@ -46,7 +46,9 @@ use Spiral\Telemetry\TracerInterface;
  * {@see SpiralIntegrationAuthMiddleware}, serving
  * - `GET /orders`: `load orders` (scoped) → `query` (scoped), answers `orders`;
  * - `POST /orders`: pushes `mail.send` to `to` of the form, answers 201 with the job id;
- * - `GET /report`: the `build report` trace of the {@see SpiralIntegrationReportService} singleton.
+ * - `GET /report`: the `build report` trace of the {@see SpiralIntegrationReportService} singleton;
+ * - `GET /audit`: {@see SpiralIntegrationAudit} records `order.status` (Paid) where the handler runs, then
+ *   `order.count` (3) inside `count orders`, a trace that is not scoped; answers `audited`.
  */
 final class SpiralIntegrationBootloader extends Bootloader
 {
@@ -127,10 +129,21 @@ final class SpiralIntegrationBootloader extends Bootloader
                     ]),
                 )),
                 ['GET', '/report'] => $container->get(SpiralIntegrationReportService::class)->build(),
+                ['GET', '/audit'] => self::audit($tracer, $container->get(SpiralIntegrationAudit::class)),
                 default => $responses->createResponse(404),
             };
         };
 
         return HttpStack::create($factory, $container, $tracerFactory, $handler, self::MIDDLEWARE);
+    }
+
+    private static function audit(TracerInterface $tracer, SpiralIntegrationAudit $audit): string
+    {
+        $audit->record('order.status', SpiralIntegrationOrderStatus::Paid);
+
+        return $tracer->trace('count orders', static function () use ($audit): string {
+            $audit->record('order.count', 3);
+            return 'audited';
+        });
     }
 }

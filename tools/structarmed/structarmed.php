@@ -10,6 +10,7 @@ return Architecture::define()
     ->layer('Clock', 'src/SystemClock.php')
     ->layer('Trace', 'src/Trace')
     ->layer('Propagation', 'src/Propagation')
+    ->layer('Span', 'src/Span')
     ->layer('Tracer', 'src/Tracer.php')
     ->layer('TracerFactory', 'src/TracerFactory.php')
     ->layer('Bootloader', 'src/Bootloader')
@@ -17,7 +18,8 @@ return Architecture::define()
         'Clock'         => [],
         'Trace'         => [],
         'Propagation'   => [],
-        'Tracer'        => ['Propagation'],
+        'Span'          => [],
+        'Tracer'        => ['Propagation', 'Span'],
         'TracerFactory' => ['+Tracer'],
-        'Bootloader'    => ['Clock', 'Trace', '+TracerFactory'],
+        'Bootloader'    => ['Clock', 'Trace', 'Span', '+TracerFactory'],
     ]);

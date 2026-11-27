@@ -36,6 +36,7 @@ use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Boot\FinalizerInterface;
 use Spiral\OpenTelemetry\InstrumentationScope;
 use Spiral\OpenTelemetry\Propagation\LateBindingPropagator;
+use Spiral\OpenTelemetry\Span\OtelCurrentSpanProvider;
 use Spiral\OpenTelemetry\SystemClock;
 use Spiral\OpenTelemetry\Trace\ContextFinalizer;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
@@ -45,6 +46,7 @@ use Spiral\OpenTelemetry\Trace\UnsampledContext;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Bootloader\TelemetryBootloader;
 use Spiral\Telemetry\ClockInterface;
+use Spiral\Telemetry\CurrentSpan;
 
 final class OpenTelemetryBootloader extends Bootloader
 {
@@ -74,6 +76,11 @@ final class OpenTelemetryBootloader extends Bootloader
         FinalizerInterface $finalizer,
     ): void {
         $telemetry->registerTracer('otel', TracerFactory::class);
+
+        # Outside a Spiral trace, as in a console command with a `#[WithSpan]` method, only the OTel context
+        # knows the span. Not unset at terminate: the provider is global and keeps no state, and unsetting it
+        # would take it from another app still running in the process.
+        CurrentSpan::setProvider(OtelCurrentSpanProvider::instance());
 
         if (self::autoloadedProvider(report: true) !== null) {
             # Built now, so its flush is registered even if only hooks ever create spans.
@@ -155,8 +162,8 @@ final class OpenTelemetryBootloader extends Bootloader
             return new NoopTracerProvider();
         }
 
+        /** @var SpanProcessorInterface $spanProcessor */
         $spanProcessor = $container->get(SpanProcessorInterface::class);
-        \assert($spanProcessor instanceof SpanProcessorInterface);
 
         try {
             $sampler = (new SamplerFactory())->create();

@@ -23,11 +23,13 @@ use OpenTelemetry\SDK\Trace\TracerProviderInterface;
 use Spiral\Boot\Finalizer;
 use Spiral\Core\Container;
 use Spiral\OpenTelemetry\Bootloader\OpenTelemetryBootloader;
+use Spiral\OpenTelemetry\Span\OtelSpanAdapter;
 use Spiral\OpenTelemetry\Tests\Feature\TestCase;
 use Spiral\OpenTelemetry\Tests\Support\TestEnv;
 use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Config\TelemetryConfig;
+use Spiral\Telemetry\CurrentSpan;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
@@ -73,6 +75,24 @@ final class OpenTelemetryBootloaderTest extends TestCase
         $driver = $this->getConfig(TelemetryConfig::CONFIG)['drivers']['otel'] ?? null;
 
         Assert::same($driver, TracerFactory::class);
+    }
+
+    /**
+     * Outside a Spiral trace only the OTel context knows the span, as of a `#[WithSpan]` method in a
+     * console command. The provider stays when the app terminates, for another app running in the process.
+     */
+    public function currentSpanOutsideTraceIsActiveOtelSpanEvenAfterTerminate(): void
+    {
+        $span = $this->getContainer()->get(TracerProviderInterface::class)->getTracer('test')->spanBuilder('outside')->startSpan();
+        $scope = $span->activate();
+        try {
+            Assert::instanceOf(CurrentSpan::get(), OtelSpanAdapter::class);
+            $this->terminate();
+            Assert::instanceOf(CurrentSpan::get(), OtelSpanAdapter::class);
+        } finally {
+            $scope->detach();
+            $span->end();
+        }
     }
 
     /**
