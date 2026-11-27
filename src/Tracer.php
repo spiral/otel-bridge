@@ -105,12 +105,14 @@ final class Tracer extends AbstractTracer implements CurrentSpanProviderInterfac
             try {
                 self::copySpan($internalSpan, $traceSpan, $traceKind, $error);
             } finally {
+                # Ended before its span: what a span processor records through CurrentSpan in onEnd() goes
+                # to the span around the trace, as for the span of a hook, not to this one, already copied.
+                $active->end();
                 # Each step runs even when the one before throws: a span processor in end(), or detach()
                 # in a Spiral app when the callback left a scope attached and debug scopes are on.
                 try {
                     $traceSpan->end();
                 } finally {
-                    $active->end();
                     try {
                         $scope->detach();
                     } finally {

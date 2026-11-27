@@ -12,9 +12,12 @@ use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\API\Trace\TraceFlags;
 use OpenTelemetry\Context\Context;
 use OpenTelemetry\Context\ContextInterface;
+use OpenTelemetry\SDK\Common\Attribute\AttributesInterface;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Trace\ReadableSpanInterface;
 use OpenTelemetry\SDK\Trace\ReadWriteSpanInterface;
+use OpenTelemetry\SDK\Trace\SamplerInterface;
+use OpenTelemetry\SDK\Trace\SamplingResult;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
@@ -290,6 +293,51 @@ final class CurrentSpanTest
         Assert::same($this->span('trace')->getAttributes()->toArray(), []);
     }
 
+    /**
+     * A sampler that does not follow the parent may drop one span under a sampled trace.
+     */
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function isNoopInsideSpanDroppedUnderSampledTrace(bool $scoped): void
+    {
+        $sampler = new class implements SamplerInterface {
+            public function shouldSample(
+                ContextInterface $parentContext,
+                string $traceId,
+                string $spanName,
+                int $spanKind,
+                AttributesInterface $attributes,
+                array $links,
+            ): SamplingResult {
+                return new SamplingResult($spanName === 'dropped' ? SamplingResult::DROP : SamplingResult::RECORD_AND_SAMPLE);
+            }
+
+            public function getDescription(): string
+            {
+                return 'DropOne';
+            }
+        };
+        $provider = new TracerProvider(new SimpleSpanProcessor($this->exporter), $sampler);
+        $tracer = new Tracer(new Container(), $provider->getTracer('test'), TraceContextPropagator::getInstance());
+
+        $tracer->trace('trace', static function (SpanInterface $trace) use ($provider): void {
+            $dropped = $provider->getTracer('test')->spanBuilder('dropped')->startSpan();
+            $scope = $dropped->activate();
+            try {
+                Assert::true($dropped->getContext()->isValid());
+                Assert::instanceOf(CurrentSpan::get()->setAttribute('in', 'dropped'), NoopSpan::class);
+            } finally {
+                $scope->detach();
+                $dropped->end();
+            }
+            Assert::same(CurrentSpan::get(), $trace);
+            CurrentSpan::get()->setAttribute('after', 'dropped');
+        }, scoped: $scoped);
+
+        Assert::same($this->span('trace')->getAttributes()->toArray(), ['after' => 'dropped']);
+        Assert::count($this->exporter->getSpans(), 1);
+    }
+
     public function isNoopInsideEndedSpan(): void
     {
         $span = $this->provider->getTracer('test')->spanBuilder('ended')->startSpan();
@@ -374,6 +422,52 @@ final class CurrentSpanTest
         Assert::false(OtelSpan::getCurrent()->getContext()->isValid());
         $tracer->trace('next', static fn() => null);
         Assert::string($tracer->getContext()['traceparent'] ?? '')->contains($this->span('next')->getTraceId());
+    }
+
+    /**
+     * The trace's own span is ended by then, so a span processor records on the span around it, as in
+     * onEnd() of a hook's span.
+     */
+    #[DataSet([false, false], 'neither scoped')]
+    #[DataSet([false, true], 'nested scoped')]
+    #[DataSet([true, false], 'outer scoped')]
+    #[DataSet([true, true], 'both scoped')]
+    public function spanProcessorEndingNestedTraceRecordsOnOuterTrace(bool $outerScoped, bool $nestedScoped): void
+    {
+        $seen = $this->recordOnEndOf('nested');
+
+        $this->tracer->trace('outer', function (SpanInterface $outer) use ($seen, $nestedScoped): void {
+            $this->tracer->trace('nested', static fn() => null, scoped: $nestedScoped);
+            Assert::same($seen->span, $outer);
+        }, scoped: $outerScoped);
+
+        Assert::same($this->span('outer')->getAttributes()->toArray(), ['on' => 'end']);
+        Assert::same($this->span('nested')->getAttributes()->toArray(), []);
+    }
+
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function spanProcessorEndingOutermostTraceRecordsOnSpanAroundIt(bool $scoped): void
+    {
+        $seen = $this->recordOnEndOf('trace');
+
+        $this->inSpan('enclosing', fn() => $this->tracer->trace('trace', static fn() => null, scoped: $scoped));
+
+        Assert::instanceOf($seen->span, OtelSpanAdapter::class);
+        Assert::same($this->span('enclosing')->getAttributes()->toArray(), ['on' => 'end']);
+        Assert::same($this->span('trace')->getAttributes()->toArray(), []);
+    }
+
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function spanProcessorEndingTraceWithNoSpanAroundItGetsNoop(bool $scoped): void
+    {
+        $seen = $this->recordOnEndOf('trace');
+
+        $this->tracer->trace('trace', static fn() => null, scoped: $scoped);
+
+        Assert::same($seen->span, NoopSpan::instance());
+        Assert::same($this->span('trace')->getAttributes()->toArray(), []);
     }
 
     #[DataSet([false], 'not scoped')]
@@ -659,6 +753,50 @@ final class CurrentSpanTest
         }
 
         throw new \LogicException("No span named {$name} was exported.");
+    }
+
+    /**
+     * Rebuilds the tracer with a span processor that, ahead of the export, sets `on: end` through
+     * CurrentSpan when the span named ends, and keeps the span CurrentSpan gave it.
+     *
+     * @return object{span: ?SpanInterface}
+     */
+    private function recordOnEndOf(string $name): object
+    {
+        $processor = new class($name) implements SpanProcessorInterface {
+            public ?SpanInterface $span = null;
+
+            public function __construct(
+                private readonly string $name,
+            ) {}
+
+            public function onStart(ReadWriteSpanInterface $span, ContextInterface $parentContext): void {}
+
+            public function onEnd(ReadableSpanInterface $span): void
+            {
+                if ($span->getName() === $this->name) {
+                    $this->span = CurrentSpan::get();
+                    $this->span->setAttribute('on', 'end');
+                }
+            }
+
+            public function forceFlush(?CancellationInterface $cancellation = null): bool
+            {
+                return true;
+            }
+
+            public function shutdown(?CancellationInterface $cancellation = null): bool
+            {
+                return true;
+            }
+        };
+        $this->tracer = new Tracer(
+            new Container(),
+            ($this->provider = new TracerProvider([$processor, new SimpleSpanProcessor($this->exporter)]))->getTracer('test'),
+            TraceContextPropagator::getInstance(),
+        );
+
+        return $processor;
     }
 
     /**
