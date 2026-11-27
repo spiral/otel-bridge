@@ -30,7 +30,6 @@ use Spiral\OpenTelemetry\Trace\DeferredSpanExporter;
 use Spiral\OpenTelemetry\TracerFactory;
 use Spiral\Telemetry\Config\TelemetryConfig;
 use Spiral\Telemetry\CurrentSpan;
-use Spiral\Telemetry\Span\NoopSpan;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
@@ -80,16 +79,16 @@ final class OpenTelemetryBootloaderTest extends TestCase
 
     /**
      * Outside a Spiral trace only the OTel context knows the span, as of a `#[WithSpan]` method in a
-     * console command; the provider goes when the app terminates.
+     * console command. The provider stays when the app terminates, for another app running in the process.
      */
-    public function currentSpanOutsideTraceIsActiveOtelSpanUntilTerminate(): void
+    public function currentSpanOutsideTraceIsActiveOtelSpanEvenAfterTerminate(): void
     {
         $span = $this->getContainer()->get(TracerProviderInterface::class)->getTracer('test')->spanBuilder('outside')->startSpan();
         $scope = $span->activate();
         try {
             Assert::instanceOf(CurrentSpan::get(), OtelSpanAdapter::class);
             $this->terminate();
-            Assert::instanceOf(CurrentSpan::get(), NoopSpan::class);
+            Assert::instanceOf(CurrentSpan::get(), OtelSpanAdapter::class);
         } finally {
             $scope->detach();
             $span->end();

@@ -165,9 +165,9 @@ final class Tracer extends AbstractTracer implements CurrentSpanProviderInterfac
      * trace: a span activated inside it, like that of `#[WithSpan]`, may be more inner still.
      */
     #[\Override]
-    public function getCurrentSpan(): SpanInterface
+    public function getCurrentSpan(): ?SpanInterface
     {
-        return (new OtelCurrentSpanProvider())->getCurrentSpan();
+        return OtelCurrentSpanProvider::instance()->getCurrentSpan();
     }
 
     /**

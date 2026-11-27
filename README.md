@@ -95,7 +95,7 @@ CurrentSpan::get()->setAttribute('dict.org_types.count', \count($types));
 ```
 
 - Inside a trace, scoped or not, it is the same Spiral span the traced callback gets.
-- Inside an OpenTelemetry span activated within the trace, as the span of a [`#[WithSpan]`](#withspan) method or of a hook, it is that span; once the span is detached, as when the method returns, it is the trace's again.
+- Inside an OpenTelemetry span activated within a trace of the `otel` driver, as the span of a [`#[WithSpan]`](#withspan) method or of a hook, it is that span; once the span is detached, as when the method returns, it is the trace's again. A trace of the `log` or `null` driver keeps its own span.
 - Outside a Spiral trace, as in a console command calling a `#[WithSpan]` method, it is the active OpenTelemetry span: the bridge sets itself as the provider of `CurrentSpan` when the app boots.
 - Outside a running trace and an active span, it is a span that drops everything.
 
@@ -105,7 +105,7 @@ A span that OpenTelemetry does not record drops the values. Besides a span not s
 
 For events, exceptions recorded by hand, links and the trace id, use `OpenTelemetry\API\Trace\Span::getCurrent()`: it gives the active OpenTelemetry span, which is a Spiral trace only when it is scoped.
 
-The span is found in the OpenTelemetry context, which is kept per fiber. The callback of a trace sees the context of the trace in whatever fiber spiral/telemetry runs it. A fiber started inside a trace gets the trace from spiral/telemetry, but has no OpenTelemetry context until it activates one, or `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning, which the error handler of a Spiral app turns into an exception, and `CurrentSpan::get()` gives the span of the trace.
+The span is found in the OpenTelemetry context, which is kept per fiber. The callback of a trace sees the context of the trace in whatever fiber spiral/telemetry runs it. A fiber started inside a trace gets the trace from spiral/telemetry, and `CurrentSpan::get()` gives its span there once the fiber activates a context of its own, as OpenTelemetry asks, or `OTEL_PHP_FIBERS_ENABLED` forks the context into new fibers over FFI. Until then, reading the context raises a warning. The error handler of a Spiral app turns it into an exception, and `CurrentSpan::get()` gives the span of the trace; where the warning does not throw, OpenTelemetry falls back to the context of the main thread, whose span `CurrentSpan::get()` then gives.
 
 ### Span status
 

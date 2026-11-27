@@ -178,6 +178,29 @@ final class CurrentSpanTest
     }
 
     /**
+     * A fiber that activates a context of its own, as OTel asks of a fiber with none, has no span in it: the
+     * framework knows the trace it handed to the fiber.
+     */
+    #[DataSet([false], 'not scoped')]
+    #[DataSet([true], 'scoped')]
+    public function fiberStartedInsideTraceWithContextOfItsOwnSeesTheTrace(bool $scoped): void
+    {
+        $this->tracer->trace('trace', static function (SpanInterface $trace): void {
+            $fiber = new \Fiber(static function () use ($trace): void {
+                $scope = Context::getRoot()->activate();
+                try {
+                    Assert::same(CurrentSpan::get()->setAttribute('in', 'fiber'), $trace);
+                } finally {
+                    $scope->detach();
+                }
+            });
+            $fiber->start();
+        }, scoped: $scoped);
+
+        Assert::same($this->span('trace')->getAttributes()->toArray(), ['in' => 'fiber']);
+    }
+
+    /**
      * Without the context attached, reading it in the fiber raises an OTel warning, which the framework
      * takes for no answer from the tracer: the span of the trace it handed to the fiber.
      */
@@ -580,18 +603,18 @@ final class CurrentSpanTest
     }
 
     /**
-     * The invalid span has the id active in a trace with no span around it, and an ended root span has it as its
-     * parent's.
+     * The invalid span means no span, which leaves it to the framework: the trace. An ended root span has the
+     * id active in a trace with no span around it as its parent's.
      */
     #[DataSet([false, false, true], 'not scoped')]
     #[DataSet([true, false, false], 'scoped')]
     #[DataSet([false, true, false], 'not scoped, inside span')]
-    public function isTraceInsideInvalidOrEndedRootSpanWithNoSpanAroundIt(bool $scoped, bool $enclosed, bool $isTrace): void
+    public function isTraceInsideInvalidOrEndedRootSpanWithNoSpanAroundIt(bool $scoped, bool $enclosed, bool $rootIsTrace): void
     {
-        $run = fn() => $this->tracer->trace('trace', function (SpanInterface $trace) use ($isTrace): void {
+        $run = fn() => $this->tracer->trace('trace', function (SpanInterface $trace) use ($rootIsTrace): void {
             $root = $this->provider->getTracer('test')->spanBuilder('root')->setParent(false)->startSpan();
             $root->end();
-            foreach ([OtelSpan::getInvalid(), $root] as $span) {
+            foreach ([[OtelSpan::getInvalid(), true], [$root, $rootIsTrace]] as [$span, $isTrace]) {
                 $scope = $span->activate();
                 try {
                     $isTrace

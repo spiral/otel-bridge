@@ -78,11 +78,9 @@ final class OpenTelemetryBootloader extends Bootloader
         $telemetry->registerTracer('otel', TracerFactory::class);
 
         # Outside a Spiral trace, as in a console command with a `#[WithSpan]` method, only the OTel context
-        # knows the span; unset at terminate, so it does not outlive the app in a process that runs another.
-        CurrentSpan::setProvider(new OtelCurrentSpanProvider());
-        $finalizer->addFinalizer(static function (bool $terminate): void {
-            $terminate and CurrentSpan::setProvider(null);
-        });
+        # knows the span. Not unset at terminate: the provider is global and keeps no state, and unsetting it
+        # would take it from another app still running in the process.
+        CurrentSpan::setProvider(OtelCurrentSpanProvider::instance());
 
         if (self::autoloadedProvider(report: true) !== null) {
             # Built now, so its flush is registered even if only hooks ever create spans.
